@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 mod parse;
 mod piece;
+use nom::combinator::all_consuming;
 use std::fmt::Display;
 use thiserror::Error;
 
 use piece::Piece;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum BoardError {
     #[error("Invalid coordinate string: {0}, expected format: [a-h][1-8]")]
     MalformedCoordinateString(String),
@@ -14,8 +15,10 @@ pub enum BoardError {
     CoordinateOutOfRange((usize, usize)),
     #[error("Unexpected number of ranks: {0}: expected 8")]
     UnexpectedNumberOfRanks(usize),
-    #[error("Unexpected number of files {0} in rank {1}: expected 8")]
+    #[error("Unexpected number of files in rank {1}: {0} expected 8")]
     UnexpectedNumberOfFiles(usize, usize),
+    #[error("Fen parse error")]
+    FenParseError,
 }
 
 // Coordinates on the board are given by a rank and a file.
@@ -26,7 +29,8 @@ pub enum BoardError {
 // to 1d coordinates. Index 0 to 7 cover the first rank, 8 to 15 cover the second rank, etc.
 //
 // The elements in the board array are Option<Peice>, so we can represent empty squares.
-struct Board {
+#[derive(Debug, Clone)]
+pub struct Board {
     positions: [Option<Piece>; 64],
 }
 
@@ -34,6 +38,16 @@ impl Board {
     fn new() -> Board {
         Board {
             positions: [None; 64],
+        }
+    }
+
+    pub fn from_fen_position(fen: &str) -> Result<Board, BoardError> {
+        let input = fen.into();
+        let results = all_consuming(parse::parse_fen_positions)(input);
+        if let Ok((_, results_vec)) = results {
+            Board::from_vec(results_vec)
+        } else {
+            Err(BoardError::FenParseError)
         }
     }
 
@@ -48,7 +62,7 @@ impl Board {
     /// Give the positions of the board in ascii format.
     /// The board is printed with the white pieces, ie rank 1, on the bottom.
     /// Terminated with a newline.
-    fn as_ascii(&self) -> String {
+    pub fn as_ascii(&self) -> String {
         let blank = '.';
         let mut s = String::new();
 
@@ -58,6 +72,32 @@ impl Board {
                 s.push(match piece {
                     Some(piece) => piece.as_ascii(),
                     None => blank,
+                });
+            });
+            s.push('\n');
+        });
+        s
+    }
+
+    pub fn as_unicode(&self) -> String {
+        self.as_grid(true, ' ')
+    }
+
+    fn as_grid(&self, unicode: bool, empty_char: char) -> String {
+        let mut s = String::new();
+
+        // Iterate over the ranks in reverse order, so that rank 1 is printed last.
+        self.positions.rchunks_exact(8).for_each(|row| {
+            row.iter().for_each(|piece| {
+                s.push(match piece {
+                    Some(piece) => {
+                        if unicode {
+                            piece.as_unicode()
+                        } else {
+                            piece.as_ascii()
+                        }
+                    }
+                    None => empty_char,
                 });
             });
             s.push('\n');
@@ -77,7 +117,10 @@ impl Board {
         let mut board = Board::new();
         for (rank, rank_vec) in vec.iter().enumerate() {
             if rank_vec.len() != 8 {
-                return Err(BoardError::UnexpectedNumberOfFiles(rank_vec.len(), rank));
+                return Err(BoardError::UnexpectedNumberOfFiles(
+                    rank_vec.len(),
+                    7 - rank,
+                ));
             }
 
             for (file, piece) in rank_vec.iter().enumerate() {

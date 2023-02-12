@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use miette::Diagnostic;
+use miette::{Diagnostic, GraphicalReportHandler};
 use nom::{
     branch::alt,
     character::complete::{multispace0, newline, space1},
@@ -22,7 +22,51 @@ use crate::common::piece::{Owner, Piece, PieceType};
 type Span<'a> = LocatedSpan<&'a str>;
 type ParseResult<'a, T> = IResult<Span<'a>, T, ErrorTree<Span<'a>>>;
 
-fn parse_fen_positions(input: Span) -> ParseResult<Vec<Vec<Option<Piece>>>> {
+#[derive(thiserror::Error, Debug, Diagnostic)]
+#[error("Bad Input")]
+struct BadInput {
+    #[source_code]
+    src: &'static str,
+
+    #[label("{kind}")]
+    bad_bit: miette::SourceSpan,
+
+    kind: BaseErrorKind<&'static str, Box<dyn std::error::Error + Send + Sync>>,
+}
+
+fn get_error_message(error: ErrorTree<Span>, input: &'static str) {
+    match error {
+        GenericErrorTree::Base { location, kind } => {
+            let offset = location.location_offset();
+            let err = BadInput {
+                src: input,
+                bad_bit: miette::SourceSpan::new(offset.into(), 0.into()),
+                kind,
+            };
+            let mut s = String::new();
+            GraphicalReportHandler::new()
+                .render_report(&mut s, &err)
+                .unwrap();
+            println!("{}", s);
+        }
+        GenericErrorTree::Stack { base, contexts } => {
+            println!("Error log:");
+            for (num, (span, context)) in contexts.into_iter().enumerate() {
+                println!("  {num}. {context}: {span}");
+            }
+            get_error_message(*base, input);
+        }
+        GenericErrorTree::Alt(choices) => {
+            println!("Expected one of the following:");
+            for (num, choice) in choices.into_iter().enumerate() {
+                println!("  Choice {}: ", num);
+                get_error_message(choice, input);
+            }
+        }
+    }
+}
+
+pub fn parse_fen_positions(input: Span) -> ParseResult<Vec<Vec<Option<Piece>>>> {
     let mut parser = collect_separated_terminated(parse_rank_line, tag("/"), alt((space1, eof)));
     parser.parse(input)
 }
@@ -42,18 +86,7 @@ fn parse_rank_line(input: Span) -> ParseResult<Vec<Option<Piece>>> {
             acc
         },
     );
-    let res = parser(input);
-
-    // TODO: Get nom to return a better error
-    if let Ok((input, pieces)) = res {
-        if pieces.len() == 8 {
-            Ok((input, pieces))
-        } else {
-            panic!("Invalid rank line: {:?}", pieces);
-        }
-    } else {
-        res
-    }
+    parser(input)
 }
 
 fn parse_number_to_empty_spaces(input: Span) -> ParseResult<Vec<Option<Piece>>> {
@@ -82,7 +115,7 @@ fn parse_piece(input: Span) -> ParseResult<Piece> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{Board, Coord};
+    use crate::common::{Board, BoardError, Coord};
     use indoc::indoc;
     use pretty_assertions::assert_eq;
 
@@ -164,5 +197,24 @@ mod tests {
             "};
 
         assert_eq!(board_ascii, expected)
+    }
+
+    /// The parse is valid, but missing a character, it cannot be converted into a board
+    #[test]
+    fn test_parse_fen_failed() {
+        let input = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPP1PPP/RNBQKB1R".into();
+        match parse_fen_positions(input).finish() {
+            Ok((_, result)) => {
+                let board = Board::from_vec(result);
+                assert_eq!(
+                    board.unwrap_err(),
+                    BoardError::UnexpectedNumberOfFiles(7, 1)
+                )
+            }
+            Err(e) => {
+                get_error_message(e, &input);
+                assert!(false, "Failed Parse")
+            }
+        }
     }
 }

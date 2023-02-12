@@ -75,18 +75,24 @@ fn parse_rank_line(input: Span) -> ParseResult<Vec<Option<Piece>>> {
     let empty_space_parser = map(nom::character::complete::u8, |count| {
         vec![None; count as usize]
     });
-    let mut parser = fold_many1(
-        alt((
-            empty_space_parser,
-            map(parse_piece, |piece| vec![Some(piece)]),
-        )),
-        || Vec::with_capacity(8),
-        |mut acc: Vec<Option<Piece>>, pieces| {
-            acc.extend(pieces);
-            acc
-        },
+    let some_piece = map(parse_piece, |p| Some(p));
+    let raw_parse = many_till(
+        alt((empty_space_parser, many1(some_piece))).context("Expected a piece or empty space"),
+        alt((tag("/"), eof)),
     );
-    parser(input)
+
+    let mut to_vec = map_res(raw_parse, |(res, _end)| {
+        let result = res.iter().fold(Vec::with_capacity(8), |mut acc, v| {
+            acc.extend(v);
+            acc
+        });
+        if result.len() == 8 {
+            Ok(result)
+        } else {
+            Err("Invalid rank length")
+        }
+    });
+    to_vec.parse(input)
 }
 
 fn parse_number_to_empty_spaces(input: Span) -> ParseResult<Vec<Option<Piece>>> {

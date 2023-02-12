@@ -22,17 +22,8 @@ use crate::common::piece::{Owner, Piece, PieceType};
 type Span<'a> = LocatedSpan<&'a str>;
 type ParseResult<'a, T> = IResult<Span<'a>, T, ErrorTree<Span<'a>>>;
 
-fn parse_fen_positions(input: Span) -> ParseResult<Vec<Option<Piece>>> {
-    let mut parser = parse_separated_terminated(
-        parse_rank_line,
-        tag("/"),
-        alt((space1, eof)),
-        || Vec::with_capacity(64),
-        |mut acc: Vec<Option<Piece>>, rank| {
-            acc.extend(rank);
-            acc
-        },
-    );
+fn parse_fen_positions(input: Span) -> ParseResult<Vec<Vec<Option<Piece>>>> {
+    let mut parser = collect_separated_terminated(parse_rank_line, tag("/"), alt((space1, eof)));
     parser.parse(input)
 }
 
@@ -56,12 +47,12 @@ fn parse_rank_line(input: Span) -> ParseResult<Vec<Option<Piece>>> {
     // TODO: Get nom to return a better error
     if let Ok((input, pieces)) = res {
         if pieces.len() == 8 {
-            return Ok((input, pieces));
+            Ok((input, pieces))
         } else {
             panic!("Invalid rank line: {:?}", pieces);
         }
     } else {
-        return res;
+        res
     }
 }
 
@@ -91,7 +82,7 @@ fn parse_piece(input: Span) -> ParseResult<Piece> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::Board;
+    use crate::common::{Board, Coord};
     use indoc::indoc;
     use pretty_assertions::assert_eq;
 
@@ -152,18 +143,25 @@ mod tests {
 
     #[test]
     fn test_parse_fen_positions() {
-        let input = "4P2p/5N2/8/8/8/8/8/8".into();
+        let input = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R".into();
         let (_, result) = all_consuming(parse_fen_positions)(input).finish().unwrap();
 
         let board = Board::from_vec(result).expect("Unable to convert to board");
-        let board_ascii = board.to_ascii();
+        let coord = Coord::from_string("a1").unwrap();
+        let expected = Some(Piece::new(PieceType::Rook, Owner::White));
+        assert_eq!(board.get(coord), expected, "White rook is a1");
 
+        let board_ascii = board.as_ascii();
         let expected = indoc! {"
             rnbqkbnr
-            pppppppp
-
-            "
-        };
+            pp.ppppp
+            ........
+            ..p.....
+            ....P...
+            .....N..
+            PPPP.PPP
+            RNBQKB.R
+            "};
 
         assert_eq!(board_ascii, expected)
     }

@@ -12,8 +12,10 @@ pub enum BoardError {
     MalformedCoordinateString(String),
     #[error("Invalid coordinate: {0:?}, expected range: [a-h][1-8]")]
     CoordinateOutOfRange((usize, usize)),
-    #[error("Unexpected board size: {0}, expected size: 64=8x8")]
-    UnexpectedBoardSize(usize),
+    #[error("Unexpected number of ranks: {0}: expected 8")]
+    UnexpectedNumberOfRanks(usize),
+    #[error("Unexpected number of files {0} in rank {1}: expected 8")]
+    UnexpectedNumberOfFiles(usize, usize),
 }
 
 // Coordinates on the board are given by a rank and a file.
@@ -35,36 +37,57 @@ impl Board {
         }
     }
 
-    fn get(&self, coord: Coord) -> Option<&Piece> {
-        self.positions[coord.file as usize + coord.rank as usize * 8].as_ref()
+    fn get(&self, coord: Coord) -> Option<Piece> {
+        self.positions[coord.file as usize + coord.rank as usize * 8]
     }
 
     fn get_mut(&mut self, coord: Coord) -> Option<&mut Piece> {
         self.positions[coord.file as usize + coord.rank as usize * 8].as_mut()
     }
 
-    fn to_ascii(&self) -> String {
+    /// Give the positions of the board in ascii format.
+    /// The board is printed with the white pieces, ie rank 1, on the bottom.
+    /// Terminated with a newline.
+    fn as_ascii(&self) -> String {
         let blank = '.';
         let mut s = String::new();
-        self.positions.iter().enumerate().for_each(|(i, p)| {
-            if i != 0 && i % 8 == 0 {
-                s.push('\n');
-            }
-            s.push(match p {
-                Some(p) => p.to_ascii(),
-                None => blank,
+
+        // Iterate over the ranks in reverse order, so that rank 1 is printed last.
+        self.positions.rchunks_exact(8).for_each(|row| {
+            row.iter().for_each(|piece| {
+                s.push(match piece {
+                    Some(piece) => piece.as_ascii(),
+                    None => blank,
+                });
             });
+            s.push('\n');
         });
         s
     }
 
-    fn from_vec(vec: Vec<Option<Piece>>) -> Result<Board, BoardError> {
-        if vec.len() != 64 {
-            return Err(BoardError::UnexpectedBoardSize(vec.len()));
+    /// Convert a grid of vector positions to a board.
+    ///
+    /// The grid is expected to have 8 rows, and each row should have 8 elements.
+    /// Following the FEN notation, the first row is the black pieces, and the last row is the white pieces.
+    fn from_vec(vec: Vec<Vec<Option<Piece>>>) -> Result<Board, BoardError> {
+        if vec.len() != 8 {
+            return Err(BoardError::UnexpectedNumberOfRanks(vec.len()));
         }
 
-        let positions = vec.try_into().unwrap();
-        Ok(Board { positions })
+        let mut board = Board::new();
+        for (rank, rank_vec) in vec.iter().enumerate() {
+            if rank_vec.len() != 8 {
+                return Err(BoardError::UnexpectedNumberOfFiles(rank_vec.len(), rank));
+            }
+
+            for (file, piece) in rank_vec.iter().enumerate() {
+                // The board is stored in the opposite order, so we need to reverse the rank.
+                let rank = 7 - rank;
+                board.positions[file + rank * 8] = *piece;
+            }
+        }
+
+        Ok(board)
     }
 }
 
@@ -92,7 +115,7 @@ impl Coord {
         let (file, rank) = (chars.next().unwrap(), chars.next().unwrap());
         let file = file as u8;
         let rank = rank as u8;
-        if file < b'a' || file > b'h' || rank < b'1' || rank > b'8' {
+        if !(b'a'..=b'h').contains(&file) || !(b'1'..=b'8').contains(&rank) {
             return Err(BoardError::CoordinateOutOfRange((
                 file as usize,
                 rank as usize,
@@ -186,37 +209,34 @@ mod tests {
 
         board.positions[0] = Some(peice);
         let coord = Coord::new(0, 0);
-        assert_eq!(board.get(coord), Some(&peice));
+        assert_eq!(board.get(coord), Some(peice));
 
         board.positions[7] = Some(peice);
         let coord = Coord::from_string("h1").unwrap();
-        assert_eq!(board.get(coord), Some(&peice));
+        assert_eq!(board.get(coord), Some(peice));
     }
 
     #[test]
     fn test_board_to_ascii() {
         let mut board = Board::new();
         board.positions[0] = Some(Piece::new(PieceType::Pawn, Owner::White));
-        board.positions[7] = Some(Piece::new(PieceType::Rook, Owner::White));
-        board.positions[8] = Some(Piece::new(PieceType::Queen, Owner::White));
-        board.positions[15] = Some(Piece::new(PieceType::King, Owner::White));
-
-        board.positions[48] = Some(Piece::new(PieceType::Pawn, Owner::Black));
-        board.positions[55] = Some(Piece::new(PieceType::Rook, Owner::Black));
-        board.positions[56] = Some(Piece::new(PieceType::Queen, Owner::Black));
-        board.positions[63] = Some(Piece::new(PieceType::King, Owner::Black));
 
         let expected = indoc!(
             "
-          P......R
-          Q......K
           ........
           ........
           ........
           ........
-          p......r
-          q......k"
+          ........
+          ........
+          ........
+          P.......
+          "
         );
-        assert_eq!(board.to_ascii(), expected);
+        assert_eq!(
+            board.as_ascii(),
+            expected,
+            "White pawn in a1 at the bottom!"
+        );
     }
 }

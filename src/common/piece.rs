@@ -25,7 +25,7 @@ impl Piece {
         Piece { peice_type, owner }
     }
 
-    pub fn to_ascii(&self) -> char {
+    pub fn as_ascii(&self) -> char {
         let letter = match self.peice_type {
             PieceType::Pawn => 'P',
             PieceType::Rook => 'R',

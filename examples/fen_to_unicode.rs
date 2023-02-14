@@ -1,5 +1,5 @@
 use clap::Parser;
-use rust_chess::Board;
+use rust_chess::{Board, BoardError};
 
 #[derive(Parser)]
 struct Args {
@@ -22,7 +22,11 @@ fn main() {
             }
         }
         Err(e) => {
-            println!("Error: {}", e);
+            if let BoardError::FenParseError(f) = e {
+                f.pretty_print(&fen)
+            } else {
+                eprintln!("{}", e)
+            }
         }
     }
 }

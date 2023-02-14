@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 mod parse;
 mod piece;
-use nom::combinator::all_consuming;
 use std::fmt::Display;
 use thiserror::Error;
 
+use parse::{parse_fen_lines, FENError};
 use piece::Piece;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum BoardError {
     #[error("Invalid coordinate string: {0}, expected format: [a-h][1-8]")]
     MalformedCoordinateString(String),
@@ -17,8 +17,8 @@ pub enum BoardError {
     UnexpectedNumberOfRanks(usize),
     #[error("Unexpected number of files in rank {1}: {0} expected 8")]
     UnexpectedNumberOfFiles(usize, usize),
-    #[error("Fen parse error")]
-    FenParseError,
+    #[error(transparent)]
+    FenParseError(#[from] FENError),
 }
 
 // Coordinates on the board are given by a rank and a file.
@@ -42,13 +42,8 @@ impl Board {
     }
 
     pub fn from_fen_position(fen: &str) -> Result<Board, BoardError> {
-        let input = fen.into();
-        let results = all_consuming(parse::parse_fen_positions)(input);
-        if let Ok((_, results_vec)) = results {
-            Board::from_vec(results_vec)
-        } else {
-            Err(BoardError::FenParseError)
-        }
+        let results = parse_fen_lines(fen)?;
+        Ok(Board { positions: results })
     }
 
     fn get(&self, coord: Coord) -> Option<Piece> {

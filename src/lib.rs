@@ -1,3 +1,3 @@
 mod common;
 
-pub use common::Board;
+pub use common::{Board, BoardError};

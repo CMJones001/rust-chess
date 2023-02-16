@@ -5,7 +5,7 @@ use std::fmt::Display;
 use thiserror::Error;
 
 use parse::{parse_fen_lines, FENError};
-use piece::Piece;
+pub use piece::{Owner, Piece, PieceType};
 
 #[derive(Error, Debug)]
 pub enum BoardError {
@@ -130,7 +130,7 @@ impl Board {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct Coord {
+pub struct Coord {
     file: u8,
     rank: u8,
 }
@@ -145,7 +145,7 @@ impl Display for Coord {
 }
 
 impl Coord {
-    fn from_string(s: &str) -> Result<Coord, BoardError> {
+    pub fn from_string(s: &str) -> Result<Coord, BoardError> {
         if s.len() != 2 {
             return Err(BoardError::MalformedCoordinateString(s.to_string()));
         }
@@ -164,7 +164,7 @@ impl Coord {
         Ok(Coord { file, rank })
     }
 
-    fn new(file: u8, rank: u8) -> Coord {
+    pub fn new(file: u8, rank: u8) -> Coord {
         if file > 7 || rank > 7 {
             panic!("Invalid coordinate: {}{}", file, rank);
         }

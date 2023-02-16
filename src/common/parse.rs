@@ -1,5 +1,5 @@
 use super::piece::Piece;
-use super::piece::{Owner, PieceType};
+use super::piece::{Player, PieceType};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
@@ -89,18 +89,18 @@ pub fn parse_fen_lines(input: &str) -> Result<[Option<Piece>; 64], FENError> {
 
 fn parse_piece(input: char) -> Option<Piece> {
     match input {
-        'P' => Some(Piece::new(PieceType::Pawn, Owner::White)),
-        'N' => Some(Piece::new(PieceType::Knight, Owner::White)),
-        'B' => Some(Piece::new(PieceType::Bishop, Owner::White)),
-        'R' => Some(Piece::new(PieceType::Rook, Owner::White)),
-        'Q' => Some(Piece::new(PieceType::Queen, Owner::White)),
-        'K' => Some(Piece::new(PieceType::King, Owner::White)),
-        'p' => Some(Piece::new(PieceType::Pawn, Owner::Black)),
-        'n' => Some(Piece::new(PieceType::Knight, Owner::Black)),
-        'b' => Some(Piece::new(PieceType::Bishop, Owner::Black)),
-        'r' => Some(Piece::new(PieceType::Rook, Owner::Black)),
-        'q' => Some(Piece::new(PieceType::Queen, Owner::Black)),
-        'k' => Some(Piece::new(PieceType::King, Owner::Black)),
+        'P' => Some(Piece::new(PieceType::Pawn, Player::White)),
+        'N' => Some(Piece::new(PieceType::Knight, Player::White)),
+        'B' => Some(Piece::new(PieceType::Bishop, Player::White)),
+        'R' => Some(Piece::new(PieceType::Rook, Player::White)),
+        'Q' => Some(Piece::new(PieceType::Queen, Player::White)),
+        'K' => Some(Piece::new(PieceType::King, Player::White)),
+        'p' => Some(Piece::new(PieceType::Pawn, Player::Black)),
+        'n' => Some(Piece::new(PieceType::Knight, Player::Black)),
+        'b' => Some(Piece::new(PieceType::Bishop, Player::Black)),
+        'r' => Some(Piece::new(PieceType::Rook, Player::Black)),
+        'q' => Some(Piece::new(PieceType::Queen, Player::Black)),
+        'k' => Some(Piece::new(PieceType::King, Player::Black)),
         _ => None,
     }
 }
@@ -126,7 +126,7 @@ mod tests {
 
         let board = Board { positions: result };
         let coord = Coord::from_string("a1").unwrap();
-        let expected = Some(Piece::new(PieceType::Rook, Owner::White));
+        let expected = Some(Piece::new(PieceType::Rook, Player::White));
         assert_eq!(board.get(coord), expected, "White rook is a1");
 
         let board_ascii = board.as_ascii();

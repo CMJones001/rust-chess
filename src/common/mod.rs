@@ -5,7 +5,7 @@ use std::fmt::Display;
 use thiserror::Error;
 
 use parse::{parse_fen_lines, FENError};
-pub use piece::{Owner, Piece, PieceType};
+pub use piece::{Piece, PieceType, Player};
 
 #[derive(Error, Debug)]
 pub enum BoardError {
@@ -176,7 +176,7 @@ impl Coord {
 mod tests {
     use super::*;
     use indoc::indoc;
-    use piece::{Owner, PieceType};
+    use piece::{PieceType, Player};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
         let coord = Coord::new(4, 2);
         assert_eq!(board.get(coord), None);
 
-        let peice = Piece::new(PieceType::Pawn, Owner::White);
+        let peice = Piece::new(PieceType::Pawn, Player::White);
 
         board.positions[0] = Some(peice);
         let coord = Coord::new(0, 0);
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_board_to_ascii() {
         let mut board = Board::new();
-        board.positions[0] = Some(Piece::new(PieceType::Pawn, Owner::White));
+        board.positions[0] = Some(Piece::new(PieceType::Pawn, Player::White));
 
         let expected = indoc!(
             "

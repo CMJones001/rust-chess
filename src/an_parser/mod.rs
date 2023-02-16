@@ -1,87 +1,43 @@
+mod move_types;
+
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{multispace0, multispace1, newline, space0, space1},
-    combinator::{all_consuming, map, opt, value},
+    character::complete::{multispace1, space0, space1},
+    combinator::{map, opt, value},
     multi::separated_list1,
-    sequence::{delimited, pair, preceded, terminated, tuple},
+    sequence::{pair, preceded, terminated, tuple},
     Finish, IResult,
 };
-use std::default;
+use thiserror::Error;
 
-use nom_supreme::ParserExt;
-
-use crate::common::{Coord, Owner, PieceType};
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum MoveType {
-    Major(MajorMove),
-    PawnMove(PawnMove),
-    PawnCapture(PawnCapture),
-    Castling(Castling),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct GameMove {
-    move_type: MoveType,
-    check: bool,
-    checkmate: bool,
-    player: Owner,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum Castling {
-    KingSide,
-    QueenSide,
-}
-
-impl From<Castling> for MoveType {
-    fn from(Castling: Castling) -> Self {
-        MoveType::Castling(Castling)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct MajorMove {
-    piece_type: PieceType,
-    end: Coord,
-    capture: bool,
-}
-
-impl From<MajorMove> for MoveType {
-    fn from(m: MajorMove) -> Self {
-        MoveType::Major(m)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-struct PawnCapture {
-    start: u8,
-    end: Coord,
-    en_passant: bool,
-    promotion: Option<PieceType>,
-}
-
-impl From<PawnCapture> for MoveType {
-    fn from(m: PawnCapture) -> Self {
-        MoveType::PawnCapture(m)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-struct PawnMove {
-    piece_type: PieceType,
-    end: Coord,
-    promotion: Option<PieceType>,
-}
-
-impl From<PawnMove> for MoveType {
-    fn from(m: PawnMove) -> Self {
-        MoveType::PawnMove(m)
-    }
-}
+use crate::common::{Coord, PieceType, Player};
+use move_types::{Castling, GameMove, MajorMove, MoveType, PawnCapture, PawnMove};
 
 type MovePair = (u64, GameMove, Option<GameMove>);
+
+#[derive(Error, Debug)]
+enum AnParseError {
+    #[error("Invalid move string: {0}")]
+    InvalidMoveString(String),
+    #[error("Parsing not complete: remains {0} from {1},")]
+    IncompleteParse(String, String),
+}
+
+fn read_move_list(input: &str) -> Result<Vec<MovePair>, AnParseError> {
+    let (remainder, result) = parse_move_list(input)
+        .finish()
+        .map_err(|e| AnParseError::InvalidMoveString(e.to_string()))?;
+
+    if !remainder.is_empty() {
+        return Err(AnParseError::IncompleteParse(
+            remainder.to_string(),
+            input.to_string(),
+        ));
+    }
+
+    Ok(result)
+}
 
 fn parse_move_list(input: &str) -> IResult<&str, Vec<MovePair>> {
     separated_list1(multispace1, parse_move_pair)(input)
@@ -89,17 +45,17 @@ fn parse_move_list(input: &str) -> IResult<&str, Vec<MovePair>> {
 
 fn parse_move_pair(input: &str) -> IResult<&str, MovePair> {
     let turn_parser = terminated(nom::character::complete::u64, pair(tag("."), space1));
-    let mut move_one = map(move_parser, |(move_type, check, checkmate)| GameMove {
-        move_type: move_type,
-        check: check,
-        checkmate: checkmate,
-        player: Owner::White,
+    let move_one = map(move_parser, |(move_type, check, checkmate)| GameMove {
+        move_type,
+        check,
+        checkmate,
+        player: Player::White,
     });
     let move_two = map(move_parser, |(move_type, check, checkmate)| GameMove {
-        move_type: move_type,
-        check: check,
-        checkmate: checkmate,
-        player: Owner::Black,
+        move_type,
+        check,
+        checkmate,
+        player: Player::Black,
     });
     let mut parser = tuple((turn_parser, terminated(move_one, space0), opt(move_two)));
     parser(input)
@@ -368,7 +324,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: false,
-            player: Owner::White,
+            player: Player::White,
         };
 
         let (input, (move_turn, white_move, black_move)) = parse_move_pair(input).unwrap();
@@ -391,7 +347,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: false,
-            player: Owner::White,
+            player: Player::White,
         };
 
         let move_type = MajorMove {
@@ -404,7 +360,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: false,
-            player: Owner::Black,
+            player: Player::Black,
         };
 
         let (input, (move_turn, white_move, black_move)) = parse_move_pair(input).unwrap();
@@ -427,7 +383,7 @@ mod tests {
             move_type,
             check: true,
             checkmate: false,
-            player: Owner::White,
+            player: Player::White,
         };
 
         let move_type = MajorMove {
@@ -440,7 +396,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: false,
-            player: Owner::Black,
+            player: Player::Black,
         };
 
         let (input, (move_turn, white_move, black_move)) = parse_move_pair(input).unwrap();
@@ -463,7 +419,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: false,
-            player: Owner::White,
+            player: Player::White,
         };
 
         let move_type = MajorMove {
@@ -476,7 +432,7 @@ mod tests {
             move_type,
             check: false,
             checkmate: true,
-            player: Owner::Black,
+            player: Player::Black,
         };
 
         let (input, (move_turn, white_move, black_move)) = parse_move_pair(input).unwrap();

@@ -1,5 +1,5 @@
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Owner {
+pub enum Player {
     White,
     Black,
 }
@@ -17,14 +17,14 @@ pub enum PieceType {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Piece {
     pub piece_type: PieceType,
-    pub owner: Owner,
+    pub player: Player,
 }
 
 impl Piece {
-    pub fn new(peice_type: PieceType, owner: Owner) -> Piece {
+    pub fn new(peice_type: PieceType, owner: Player) -> Piece {
         Piece {
             piece_type: peice_type,
-            owner,
+            player: owner,
         }
     }
 
@@ -37,26 +37,26 @@ impl Piece {
             PieceType::Queen => 'Q',
             PieceType::King => 'K',
         };
-        match self.owner {
-            Owner::White => letter.to_uppercase().next().unwrap(),
-            Owner::Black => letter.to_lowercase().next().unwrap(),
+        match self.player {
+            Player::White => letter.to_uppercase().next().unwrap(),
+            Player::Black => letter.to_lowercase().next().unwrap(),
         }
     }
 
     pub fn as_unicode(&self) -> char {
-        match (self.piece_type, self.owner) {
-            (PieceType::Pawn, Owner::White) => '♙',
-            (PieceType::Pawn, Owner::Black) => '♟',
-            (PieceType::Rook, Owner::White) => '♖',
-            (PieceType::Rook, Owner::Black) => '♜',
-            (PieceType::Knight, Owner::White) => '♘',
-            (PieceType::Knight, Owner::Black) => '♞',
-            (PieceType::Bishop, Owner::White) => '♗',
-            (PieceType::Bishop, Owner::Black) => '♝',
-            (PieceType::Queen, Owner::White) => '♕',
-            (PieceType::Queen, Owner::Black) => '♛',
-            (PieceType::King, Owner::White) => '♔',
-            (PieceType::King, Owner::Black) => '♚',
+        match (self.piece_type, self.player) {
+            (PieceType::Pawn, Player::White) => '♙',
+            (PieceType::Pawn, Player::Black) => '♟',
+            (PieceType::Rook, Player::White) => '♖',
+            (PieceType::Rook, Player::Black) => '♜',
+            (PieceType::Knight, Player::White) => '♘',
+            (PieceType::Knight, Player::Black) => '♞',
+            (PieceType::Bishop, Player::White) => '♗',
+            (PieceType::Bishop, Player::Black) => '♝',
+            (PieceType::Queen, Player::White) => '♕',
+            (PieceType::Queen, Player::Black) => '♛',
+            (PieceType::King, Player::White) => '♔',
+            (PieceType::King, Player::Black) => '♚',
         }
     }
 }

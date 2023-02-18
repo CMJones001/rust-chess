@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 mod fen_parser;
 mod piece;
+use crate::play_move::PotentialMove;
 use std::default::Default;
 use std::fmt::Display;
 use thiserror::Error;
@@ -26,8 +27,24 @@ pub enum BoardError {
     UnexpectedNumberOfRanks(usize),
     #[error("Unexpected number of files in rank {1}: {0} expected 8")]
     UnexpectedNumberOfFiles(usize, usize),
+    #[error("No King found for {0}")]
+    NoKingFound(Player),
     #[error(transparent)]
     FenParseError(#[from] FENError),
+    #[error(transparent)]
+    AnParseError(#[from] AnParseError),
+    #[error(transparent)]
+    MoveError(#[from] MoveError),
+}
+
+#[derive(Error, Debug)]
+pub enum MoveError {
+    #[error("Unexpected piece to move, expected {0:?} found {1:?}")]
+    UnexpectedPieceToMove(Piece, Option<Piece>),
+    #[error("Unexpected piece on end position, expected {0:?} found {1:?}")]
+    UnexpectedEndPositionMove(Option<Piece>, Option<Piece>),
+    #[error("En Passant into occupied square: {0}")]
+    EnPassantIntoOccupiedSquare(Piece),
 }
 
 // Coordinates on the board are given by a rank and a file.
@@ -40,7 +57,7 @@ pub enum BoardError {
 // The elements in the board array are Option<Peice>, so we can represent empty squares.
 #[derive(Debug, Clone)]
 pub struct Board {
-    positions: [Option<Piece>; 64],
+    pub positions: [Option<Piece>; 64],
     pub move_history: Vec<PlayedMove>,
 }
 
@@ -70,6 +87,43 @@ impl Board {
 
     pub fn set(&mut self, coord: Coord, piece: Option<Piece>) {
         self.positions[coord.file as usize + coord.rank as usize * 8] = piece;
+    }
+
+    pub fn push_move(&mut self, mv: PotentialMove) -> Result<(), BoardError> {
+        // Test that the piece moved is the piece we expect to move.
+
+        if let Some(en_passant) = mv.en_passant {
+            let start_piece = self.get(mv.start);
+            let end_piece = self.get(mv.end);
+            let captured_piece = self.get(en_passant);
+            if start_piece != Some(mv.piece) {
+                return Err(MoveError::UnexpectedPieceToMove(mv.piece, start_piece).into());
+            } else if end_piece != None {
+                return Err(MoveError::EnPassantIntoOccupiedSquare(end_piece.unwrap()).into());
+            } else if captured_piece != mv.captures {
+                return Err(
+                    MoveError::UnexpectedEndPositionMove(mv.captures, captured_piece).into(),
+                );
+            } else {
+                self.set(mv.start, None);
+                self.set(mv.end, Some(mv.piece));
+                self.set(en_passant, None);
+            }
+        } else {
+            let start_piece = self.get(mv.start);
+            let end_peice = self.get(mv.end);
+            if start_piece != Some(mv.piece) {
+                return Err(MoveError::UnexpectedPieceToMove(mv.piece, start_piece).into());
+            } else if end_peice != mv.captures {
+                return Err(MoveError::UnexpectedEndPositionMove(mv.captures, end_peice).into());
+            } else {
+                self.set(mv.start, None);
+                self.set(mv.end, Some(mv.piece));
+            }
+        }
+
+        self.move_history.push(mv.into());
+        Ok(())
     }
 
     /// Give the positions of the board in ascii format.
@@ -192,6 +246,12 @@ impl Coord {
         Coord { file, rank }
     }
 
+    pub fn from_index(index: usize) -> Coord {
+        let file = (index % 8) as u8;
+        let rank = (index / 8) as u8;
+        Coord { file, rank }
+    }
+
     /// Return the coordinate relative to the given value.
     /// If the coordinate is outside the board, return None.
     ///  dy is the change in rank, and dx is the change in file.
@@ -214,18 +274,18 @@ impl Coord {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PlayedMove {
     pub piece: Piece,
-    pub from: Coord,
-    pub to: Coord,
-    pub captured: Option<Piece>,
+    pub start: Coord,
+    pub end: Coord,
+    pub captures: Option<Piece>,
 }
 
 impl PlayedMove {
-    pub fn new(piece: Piece, from: Coord, to: Coord, captured: Option<Piece>) -> PlayedMove {
+    pub fn new(piece: Piece, start: Coord, end: Coord, captures: Option<Piece>) -> PlayedMove {
         PlayedMove {
             piece,
-            from,
-            to,
-            captured,
+            start,
+            end,
+            captures,
         }
     }
 
@@ -234,11 +294,11 @@ impl PlayedMove {
             Piece {
                 piece_type: PieceType::Pawn,
                 player: Player::White,
-            } => self.from.rank == 1 && self.to.rank == 3,
+            } => self.start.rank == 1 && self.end.rank == 3,
             Piece {
                 piece_type: PieceType::Pawn,
                 player: Player::Black,
-            } => self.from.rank == 6 && self.to.rank == 4,
+            } => self.start.rank == 6 && self.end.rank == 4,
             _ => false,
         }
     }
@@ -246,15 +306,26 @@ impl PlayedMove {
 
 impl Display for PlayedMove {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let capture_string = match self.captured {
+        let capture_string = match self.captures {
             Some(p) => format!("x{}", p),
             None => "".to_string(),
         };
         write!(
             f,
             "{}: {} -> {}{}",
-            self.piece, self.from, self.to, capture_string
+            self.piece, self.start, self.end, capture_string
         )
+    }
+}
+
+impl From<PotentialMove> for PlayedMove {
+    fn from(potential_move: PotentialMove) -> Self {
+        PlayedMove {
+            piece: potential_move.piece,
+            start: potential_move.start,
+            end: potential_move.end,
+            captures: potential_move.captures,
+        }
     }
 }
 
@@ -434,5 +505,75 @@ mod tests {
         );
 
         assert!(!move_.is_double_pawn_move());
+    }
+
+    #[test]
+    /// Test that we can allow for an en passant move and that
+    /// the positions are updated correctly.
+    fn test_en_passant_moves() {
+        use crate::{plot_moves, valid_moves};
+        let mut board_strings = vec![];
+        let mut board = Board::default();
+
+        let coord = Coord::from_string("e5").unwrap();
+        let player = Player::White;
+        let pawn_w = Piece {
+            piece_type: PieceType::Pawn,
+            player,
+        };
+        board.set(coord, Some(pawn_w));
+
+        // Move the black pawn on d7 to d5
+        let from_coord = Coord::from_string("d7").unwrap();
+        let to_coord = Coord::from_string("d5").unwrap();
+        let pawn_b = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::Black,
+        };
+
+        let move_ = PotentialMove::new(from_coord, to_coord, pawn_b, None);
+        board.push_move(move_).unwrap();
+
+        // En passant
+        // White pawn on e5 should be able to capture the black pawn on d5
+        let coord = Coord::from_string("e5").unwrap();
+
+        let pawn_moves = valid_moves(&board, coord, false).unwrap();
+        let move_grid = plot_moves(&board, &pawn_moves, false);
+        board_strings.push(move_grid);
+
+        let en_passant_move = pawn_moves.iter().find(|m| m.captures.is_some()).unwrap();
+        board.push_move(*en_passant_move).unwrap();
+
+        let move_grid = board.as_ascii();
+        board_strings.push(move_grid);
+
+        let expected_start = indoc!(
+            "
+            rnbqkbnr
+            ppp.pppp
+            ...xo...
+            ...pP...
+            ........
+            ........
+            PPPPPPPP
+            RNBQKBNR
+            "
+        );
+        let expected_end = indoc!(
+            "
+            rnbqkbnr
+            ppp.pppp
+            ...P....
+            ........
+            ........
+            ........
+            PPPPPPPP
+            RNBQKBNR
+            "
+        );
+
+        assert_eq!(board_strings[0], expected_start);
+        assert_eq!(board_strings[1], expected_end);
     }
 }

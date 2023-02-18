@@ -16,6 +16,15 @@ impl Player {
     }
 }
 
+impl Display for Player {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Player::White => write!(f, "White"),
+            Player::Black => write!(f, "Black"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PieceType {
     Pawn,

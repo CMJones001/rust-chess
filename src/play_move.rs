@@ -1,4 +1,4 @@
-use crate::common::{Board, Coord, PieceType, Player};
+use crate::common::{Board, Coord, Piece, PieceType, Player};
 
 use thiserror::Error;
 
@@ -12,38 +12,60 @@ pub enum MoveError {
 pub struct PotentialMove {
     pub start: Coord,
     pub end: Coord,
-    pub piece: PieceType,
-    pub captures: Option<PieceType>,
-    pub player: Player,
+    pub piece: Piece,
+    pub captures: Option<Piece>,
+    pub en_passant: Option<Coord>,
 }
 
 impl PotentialMove {
-    fn new(
+    pub fn new(start: Coord, end: Coord, piece: Piece, captures: Option<Piece>) -> Self {
+        PotentialMove {
+            start,
+            end,
+            piece,
+            captures,
+            en_passant: None,
+        }
+    }
+
+    fn new_en_passant(
         start: Coord,
         end: Coord,
-        piece: PieceType,
-        captures: Option<PieceType>,
-        player: Player,
+        piece: Piece,
+        captures: Option<Piece>,
+        capture_coords: Coord,
     ) -> Self {
         PotentialMove {
             start,
             end,
             piece,
             captures,
-            player,
+            en_passant: Some(capture_coords),
         }
     }
 }
 
 // Return a list of valid moves for the piece at the given location
 // TODO: Perform a second pass to remove moves that would put the player in check
-pub fn valid_moves(board: &Board, coord: Coord) -> Result<Vec<PotentialMove>, MoveError> {
+// TODO: Add support for castling
+//
+// # Arguments
+// * `board` - The board to check
+// * `coord` - The coordinate of the piece to check
+// * `remove_checks` - If true, remove moves that would put the player in check
+//              (this is important, as a piece can still threaten a king even if the actual move
+//              would put the player in check)
+pub fn valid_moves(
+    board: &Board,
+    coord: Coord,
+    remove_checks: bool,
+) -> Result<Vec<PotentialMove>, MoveError> {
     let active_piece = board.get(coord).ok_or(MoveError::EmptyPiece(coord))?;
 
     let piece_type = active_piece.piece_type;
     let player = active_piece.player;
 
-    let moves = match piece_type {
+    let mut moves = match piece_type {
         PieceType::Pawn => move_pawn(board, &coord, player),
         PieceType::Rook => move_rook(board, &coord, player),
         PieceType::Knight => move_knight(board, &coord, player),
@@ -51,7 +73,49 @@ pub fn valid_moves(board: &Board, coord: Coord) -> Result<Vec<PotentialMove>, Mo
         PieceType::Queen => move_queen(board, &coord, player),
         PieceType::King => move_king(board, &coord, player),
     };
+
+    // For the second pass, we need to know if the player is in check
+    // Perform the move and see if the player is in check
+    if remove_checks {
+        moves.retain(|m| {
+            let mut board = board.clone();
+            board.push_move(*m).unwrap();
+            !is_in_check(&board, player)
+        });
+    }
     Ok(moves)
+}
+
+pub fn is_in_check(board: &Board, player: Player) -> bool {
+    // TODO: Would be slightly cleaner to move this to the board struct
+    let opponent_player = player.opponent();
+    let opponent_pieces: Vec<_> = board
+        .positions
+        .iter()
+        .enumerate()
+        .filter_map(|(num, p)| {
+            let Some(piece) = p else {
+                return None;
+            };
+            if piece.player == opponent_player {
+                let coord = Coord::from_index(num);
+                Some((coord, piece.piece_type))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    opponent_pieces.into_iter().any(|(coord, _piece)| {
+        let moves = valid_moves(board, coord, false).unwrap();
+        moves.iter().any(|m| {
+            if let Some(c) = m.captures {
+                c.piece_type == PieceType::King
+            } else {
+                false
+            }
+        })
+    })
 }
 
 pub fn plot_moves(board: &Board, moves: &[PotentialMove], unicode: bool) -> String {
@@ -129,9 +193,8 @@ fn move_king(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
                 moves.push(PotentialMove::new(
                     *coord,
                     new_coord,
-                    PieceType::King,
-                    Some(piece.piece_type),
-                    player,
+                    Piece::new(PieceType::King, player),
+                    Some(piece),
                 ));
             }
         } else {
@@ -139,9 +202,8 @@ fn move_king(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
             moves.push(PotentialMove::new(
                 *coord,
                 new_coord,
-                PieceType::King,
+                Piece::new(PieceType::King, player),
                 None,
-                player,
             ));
         }
     }
@@ -168,18 +230,16 @@ fn move_knight(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMov
                 moves.push(PotentialMove::new(
                     *coord,
                     new_coord,
-                    PieceType::Knight,
-                    Some(piece.piece_type),
-                    player,
+                    Piece::new(PieceType::Knight, player),
+                    Some(piece),
                 ));
             }
         } else {
             moves.push(PotentialMove::new(
                 *coord,
                 new_coord,
-                PieceType::Knight,
+                Piece::new(PieceType::Knight, player),
                 None,
-                player,
             ));
         }
     }
@@ -206,16 +266,18 @@ fn try_linear_moves(
                     moves.push(PotentialMove::new(
                         *coord,
                         new_coord,
-                        piece_type,
-                        Some(piece.piece_type),
-                        player,
+                        Piece::new(piece_type, player),
+                        Some(piece),
                     ));
                 }
                 break;
             } else {
                 // We can move to the empty square
                 moves.push(PotentialMove::new(
-                    *coord, new_coord, piece_type, None, player,
+                    *coord,
+                    new_coord,
+                    Piece::new(piece_type, player),
+                    None,
                 ));
             }
         }
@@ -235,7 +297,12 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
     // Single move forward for white
     if let Some(foward_coord) = coord.relative(0, direction) {
         if board.get(foward_coord).is_none() {
-            let move_ = PotentialMove::new(*coord, foward_coord, PieceType::Pawn, None, player);
+            let move_ = PotentialMove::new(
+                *coord,
+                foward_coord,
+                Piece::new(PieceType::Pawn, player),
+                None,
+            );
             moves.push(move_);
 
             // Double move forward if on starting rank
@@ -246,8 +313,12 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
             if coord.rank == starting_rank {
                 if let Some(foward_coord) = coord.relative(0, 2 * direction) {
                     if board.get(foward_coord).is_none() {
-                        let move_ =
-                            PotentialMove::new(*coord, foward_coord, PieceType::Pawn, None, player);
+                        let move_ = PotentialMove::new(
+                            *coord,
+                            foward_coord,
+                            Piece::new(PieceType::Pawn, player),
+                            None,
+                        );
                         moves.push(move_);
                     }
                 }
@@ -263,9 +334,8 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
                     let move_ = PotentialMove::new(
                         *coord,
                         capture_coord,
-                        PieceType::Pawn,
-                        Some(capture_piece.piece_type),
-                        player,
+                        Piece::new(PieceType::Pawn, player),
+                        Some(capture_piece),
                     );
                     moves.push(move_);
                 }
@@ -276,19 +346,20 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
     // En passant
     if let Some(last_move) = board.last_move() {
         if last_move.is_double_pawn_move() {
-            let (x_last, y_last) = (last_move.to.file, last_move.to.rank);
+            let (x_last, y_last) = (last_move.end.file, last_move.end.rank);
             let (x_piece, y_piece) = (coord.file, coord.rank);
             if (x_piece as i32 - x_last as i32).abs() == 1 && y_piece == y_last {
                 let new_rank = match player {
                     Player::White => y_piece + 1,
                     Player::Black => y_piece - 1,
                 } as u8;
-                let move_ = PotentialMove::new(
+
+                let move_ = PotentialMove::new_en_passant(
                     *coord,
                     Coord::new(x_last, new_rank),
-                    PieceType::Pawn,
-                    Some(last_move.piece.piece_type),
-                    player,
+                    Piece::new(PieceType::Pawn, player),
+                    Some(last_move.piece),
+                    last_move.end,
                 );
                 moves.push(move_);
             }
@@ -343,7 +414,7 @@ mod tests {
         assert_eq!(pawn_moves[0].captures, None, "First move is not a capture");
         assert_eq!(
             pawn_moves[1].captures,
-            Some(PieceType::Pawn),
+            Some(Piece::new(PieceType::Pawn, Player::Black)),
             "Pawn should capture"
         );
     }
@@ -402,9 +473,9 @@ mod tests {
         };
         let played_move = PlayedMove {
             piece: pawn_b,
-            from: from_coord,
-            to: to_coord,
-            captured: None,
+            start: from_coord,
+            end: to_coord,
+            captures: None,
         };
         board.move_history.push(played_move);
         board.set(to_coord, Some(pawn_b));
@@ -473,9 +544,9 @@ mod tests {
         };
         let played_move = PlayedMove {
             piece: pawn_b,
-            from: from_coord,
-            to: to_coord,
-            captured: None,
+            start: from_coord,
+            end: to_coord,
+            captures: None,
         };
         board.move_history.push(played_move);
         board.set(to_coord, Some(pawn_b));
@@ -488,7 +559,7 @@ mod tests {
         assert_eq!(pawn_moves.len(), 2, "Pawn should have 2 moves");
         assert_eq!(
             pawn_moves[1].captures,
-            Some(PieceType::Pawn),
+            Some(Piece::new(PieceType::Pawn, Player::Black)),
             "Pawn should capture"
         );
         assert_eq!(
@@ -536,5 +607,69 @@ mod tests {
 
         let n_captures = bishop_moves.iter().filter(|m| m.captures.is_some()).count();
         assert_eq!(n_captures, 1, "Bishop should have 1 captures");
+    }
+
+    #[test]
+    fn test_check() {
+        let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
+
+        let coord = Coord::from_string("e1").unwrap();
+        let piece_w = Piece {
+            piece_type: PieceType::King,
+            player: Player::White,
+        };
+        board.set(coord, Some(piece_w));
+
+        let coord = Coord::from_string("e8").unwrap();
+        let piece_b = Piece {
+            piece_type: PieceType::Rook,
+            player: Player::Black,
+        };
+        board.set(coord, Some(piece_b));
+
+        assert!(
+            is_in_check(&board, Player::White),
+            "White should be in check"
+        );
+    }
+
+    #[test]
+    fn test_pinning() {
+        // Place a Q between the r and K.
+        // The Q should be pinned to the K.
+        // The Q can move in the rank, but not elsewhere
+        let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
+
+        let coord = Coord::from_string("e1").unwrap();
+        let piece_k = Piece {
+            piece_type: PieceType::King,
+            player: Player::White,
+        };
+        board.set(coord, Some(piece_k));
+
+        let coord = Coord::from_string("e8").unwrap();
+        let piece_r = Piece {
+            piece_type: PieceType::Rook,
+            player: Player::Black,
+        };
+        board.set(coord, Some(piece_r));
+
+        let coord = Coord::from_string("e4").unwrap();
+        let piece_q = Piece {
+            piece_type: PieceType::Queen,
+            player: Player::White,
+        };
+        board.set(coord, Some(piece_q));
+
+        assert!(
+            !is_in_check(&board, Player::White),
+            "White should not be in check"
+        );
+
+        let moves = valid_moves(&board, coord, true).unwrap();
+        assert_eq!(moves.len(), 6, "Queen should have 6 moves");
+
+        let captures = moves.iter().filter(|m| m.captures.is_some()).count();
+        assert_eq!(captures, 1, "Queen should have 1 capture");
     }
 }

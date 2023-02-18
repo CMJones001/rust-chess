@@ -9,7 +9,7 @@ pub enum MoveType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct GameMove {
+pub struct RecordedMove {
     pub move_type: MoveType,
     pub check: bool,
     pub checkmate: bool,
@@ -41,6 +41,16 @@ impl From<MajorMove> for MoveType {
     }
 }
 
+impl MajorMove {
+    pub fn new(piece_type: PieceType, end: Coord, capture: bool) -> Self {
+        MajorMove {
+            piece_type,
+            end,
+            capture,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct PawnCapture {
     pub start: u8,
@@ -55,11 +65,32 @@ impl From<PawnCapture> for MoveType {
     }
 }
 
+impl PawnCapture {
+    pub fn new(start: u8, end: Coord, en_passant: bool, promotion: Option<PieceType>) -> Self {
+        Self {
+            start,
+            end,
+            en_passant,
+            promotion,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct PawnMove {
     pub piece_type: PieceType,
     pub end: Coord,
     pub promotion: Option<PieceType>,
+}
+
+impl PawnMove {
+    pub fn new(end: Coord, promotion: Option<PieceType>) -> Self {
+        PawnMove {
+            piece_type: PieceType::Pawn,
+            end,
+            promotion,
+        }
+    }
 }
 
 impl From<PawnMove> for MoveType {

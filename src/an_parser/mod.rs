@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 mod move_types;
 
 use nom::{
@@ -9,22 +10,13 @@ use nom::{
     sequence::{pair, preceded, terminated, tuple},
     Finish, IResult,
 };
-use thiserror::Error;
 
-use crate::common::{Coord, PieceType, Player};
-use move_types::{Castling, GameMove, MajorMove, MoveType, PawnCapture, PawnMove};
+use crate::common::{AnParseError, Coord, PieceType, Player};
+pub use move_types::{Castling, RecordedMove, MajorMove, MoveType, PawnCapture, PawnMove};
 
-type MovePair = (u64, GameMove, Option<GameMove>);
+pub type MovePair = (u64, RecordedMove, Option<RecordedMove>);
 
-#[derive(Error, Debug)]
-enum AnParseError {
-    #[error("Invalid move string: {0}")]
-    InvalidMoveString(String),
-    #[error("Parsing not complete: remains {0} from {1},")]
-    IncompleteParse(String, String),
-}
-
-fn read_move_list(input: &str) -> Result<Vec<MovePair>, AnParseError> {
+pub fn read_move_list(input: &str) -> Result<Vec<MovePair>, AnParseError> {
     let (remainder, result) = parse_move_list(input)
         .finish()
         .map_err(|e| AnParseError::InvalidMoveString(e.to_string()))?;
@@ -45,13 +37,13 @@ fn parse_move_list(input: &str) -> IResult<&str, Vec<MovePair>> {
 
 fn parse_move_pair(input: &str) -> IResult<&str, MovePair> {
     let turn_parser = terminated(nom::character::complete::u64, pair(tag("."), space1));
-    let move_one = map(move_parser, |(move_type, check, checkmate)| GameMove {
+    let move_one = map(move_parser, |(move_type, check, checkmate)| RecordedMove {
         move_type,
         check,
         checkmate,
         player: Player::White,
     });
-    let move_two = map(move_parser, |(move_type, check, checkmate)| GameMove {
+    let move_two = map(move_parser, |(move_type, check, checkmate)| RecordedMove {
         move_type,
         check,
         checkmate,
@@ -115,13 +107,7 @@ fn parse_pawn_capture(input: &str) -> IResult<&str, MoveType> {
     let en_passant = en_passant.unwrap_or(false);
 
     let start = start as u8 - b'a';
-    let pawn_capture = PawnCapture {
-        start,
-        end,
-        en_passant,
-        promotion,
-    }
-    .into();
+    let pawn_capture = PawnCapture::new(start, end, en_passant, promotion).into();
     Ok((input, pawn_capture))
 }
 
@@ -320,7 +306,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let white_expected = GameMove {
+        let white_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: false,
@@ -343,7 +329,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let white_expected = GameMove {
+        let white_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: false,
@@ -356,7 +342,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let black_expected = GameMove {
+        let black_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: false,
@@ -379,7 +365,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let white_expected = GameMove {
+        let white_expected = RecordedMove {
             move_type,
             check: true,
             checkmate: false,
@@ -392,7 +378,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let black_expected = GameMove {
+        let black_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: false,
@@ -415,7 +401,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let white_expected = GameMove {
+        let white_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: false,
@@ -428,7 +414,7 @@ mod tests {
             capture: false,
         }
         .into();
-        let black_expected = GameMove {
+        let black_expected = RecordedMove {
             move_type,
             check: false,
             checkmate: true,

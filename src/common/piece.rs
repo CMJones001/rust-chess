@@ -4,6 +4,16 @@ pub enum Player {
     Black,
 }
 
+impl Player {
+    pub fn opponent(&self) -> Player {
+        if *self == Player::White {
+            Player::Black
+        } else {
+            Player::White
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PieceType {
     Pawn,

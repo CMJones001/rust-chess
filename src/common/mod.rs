@@ -1,17 +1,26 @@
 #![allow(dead_code)]
-mod parse;
+mod fen_parser;
 mod piece;
+use std::default::Default;
 use std::fmt::Display;
 use thiserror::Error;
 
-use parse::{parse_fen_lines, FENError};
+use fen_parser::{parse_fen_lines, FENError};
 pub use piece::{Piece, PieceType, Player};
+
+#[derive(Error, Debug)]
+pub enum AnParseError {
+    #[error("Invalid move string: {0}")]
+    InvalidMoveString(String),
+    #[error("Parsing not complete: remains {0} from {1},")]
+    IncompleteParse(String, String),
+}
 
 #[derive(Error, Debug)]
 pub enum BoardError {
     #[error("Invalid coordinate string: {0}, expected format: [a-h][1-8]")]
     MalformedCoordinateString(String),
-    #[error("Invalid coordinate: {0:?}, expected range: [a-h][1-8]")]
+    #[error("Invalid coordinate: {0:?}, expected char in range: [0-7][0-7]")]
     CoordinateOutOfRange((usize, usize)),
     #[error("Unexpected number of ranks: {0}: expected 8")]
     UnexpectedNumberOfRanks(usize),
@@ -46,32 +55,23 @@ impl Board {
         Ok(Board { positions: results })
     }
 
-    fn get(&self, coord: Coord) -> Option<Piece> {
+    pub fn get(&self, coord: Coord) -> Option<Piece> {
         self.positions[coord.file as usize + coord.rank as usize * 8]
     }
 
-    fn get_mut(&mut self, coord: Coord) -> Option<&mut Piece> {
+    pub fn get_mut(&mut self, coord: Coord) -> Option<&mut Piece> {
         self.positions[coord.file as usize + coord.rank as usize * 8].as_mut()
+    }
+
+    pub fn set(&mut self, coord: Coord, piece: Piece) {
+        self.positions[coord.file as usize + coord.rank as usize * 8] = Some(piece);
     }
 
     /// Give the positions of the board in ascii format.
     /// The board is printed with the white pieces, ie rank 1, on the bottom.
     /// Terminated with a newline.
     pub fn as_ascii(&self) -> String {
-        let blank = '.';
-        let mut s = String::new();
-
-        // Iterate over the ranks in reverse order, so that rank 1 is printed last.
-        self.positions.rchunks_exact(8).for_each(|row| {
-            row.iter().for_each(|piece| {
-                s.push(match piece {
-                    Some(piece) => piece.as_ascii(),
-                    None => blank,
-                });
-            });
-            s.push('\n');
-        });
-        s
+        self.as_grid(false, '.')
     }
 
     pub fn as_unicode(&self) -> String {
@@ -129,10 +129,22 @@ impl Board {
     }
 }
 
+impl Display for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ascii())
+    }
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Board::from_fen_position("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR").unwrap()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Coord {
-    file: u8,
-    rank: u8,
+    pub file: u8,
+    pub rank: u8,
 }
 
 impl Display for Coord {
@@ -169,6 +181,24 @@ impl Coord {
             panic!("Invalid coordinate: {}{}", file, rank);
         }
         Coord { file, rank }
+    }
+
+    /// Return the coordinate relative to the given value.
+    /// If the coordinate is outside the board, return None.
+    ///  dy is the change in rank, and dx is the change in file.
+    ///  with dy = 1, dx = 0, we get the square above the current square,
+    ///  toward the black pieces.
+    pub fn relative(&self, dfile: i32, drank: i32) -> Option<Coord> {
+        let file = self.file as i32 + dfile;
+        let rank = self.rank as i32 + drank;
+        if !(0..7).contains(&file) || !(0..7).contains(&rank) {
+            None
+        } else {
+            Some(Coord {
+                file: file as u8,
+                rank: rank as u8,
+            })
+        }
     }
 }
 

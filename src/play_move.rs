@@ -36,6 +36,7 @@ impl PotentialMove {
 }
 
 // Return a list of valid moves for the piece at the given location
+// TODO: Perform a second pass to remove moves that would put the player in check
 pub fn valid_moves(board: &Board, coord: Coord) -> Result<Vec<PotentialMove>, MoveError> {
     let active_piece = board.get(coord).ok_or(MoveError::EmptyPiece(coord))?;
 
@@ -60,20 +61,22 @@ pub fn plot_moves(board: &Board, moves: &[PotentialMove], unicode: bool) -> Stri
     for rank in (0..8).rev() {
         for file in 0..8 {
             let coord = Coord { file, rank };
-            if let Some(move_end) = moves.iter().find(|m| m.end == coord) {
-                s.push(match move_end.captures {
-                    Some(_) => 'x',
-                    None => 'o',
-                });
-            } else if let Some(piece) = board.get(coord) {
-                s.push(if unicode {
-                    piece.as_unicode()
+            s.push(
+                if let Some(move_end) = moves.iter().find(|m| m.end == coord) {
+                    match move_end.captures {
+                        Some(_) => 'x',
+                        None => 'o',
+                    }
+                } else if let Some(piece) = board.get(coord) {
+                    if unicode {
+                        piece.as_unicode()
+                    } else {
+                        piece.as_ascii()
+                    }
                 } else {
-                    piece.as_ascii()
-                });
-            } else {
-                s.push(blank);
-            }
+                    blank
+                },
+            )
         }
         s.push('\n');
     }
@@ -257,7 +260,6 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
         if let Some(capture_coord) = coord.relative(*x, *y) {
             if let Some(capture_piece) = board.get(capture_coord) {
                 if capture_piece.player != player {
-                    // TODO: Deal with en passant
                     let move_ = PotentialMove::new(
                         *coord,
                         capture_coord,
@@ -271,13 +273,36 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
         }
     }
 
+    // En passant
+    if let Some(last_move) = board.last_move() {
+        if last_move.is_double_pawn_move() {
+            let (x_last, y_last) = (last_move.to.file, last_move.to.rank);
+            let (x_piece, y_piece) = (coord.file, coord.rank);
+            if (x_piece as i32 - x_last as i32).abs() == 1 && y_piece == y_last {
+                let new_rank = match player {
+                    Player::White => y_piece + 1,
+                    Player::Black => y_piece - 1,
+                } as u8;
+                let move_ = PotentialMove::new(
+                    *coord,
+                    Coord::new(x_last, new_rank),
+                    PieceType::Pawn,
+                    Some(last_move.piece.piece_type),
+                    player,
+                );
+                moves.push(move_);
+            }
+        }
+    }
+
     moves
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{Board, Coord, Piece, PieceType, Player};
+    use crate::common::{Board, Coord, Piece, PieceType, PlayedMove, Player};
+    use test_case::test_case;
 
     #[test]
     fn test_moves_pawn() {
@@ -303,14 +328,14 @@ mod tests {
             piece_type: PieceType::Pawn,
             player,
         };
-        board.set(coord, pawn);
+        board.set(coord, Some(pawn));
 
         let coord = Coord::from_string("d5").unwrap();
         let pawn = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
         };
-        board.set(coord, pawn);
+        board.set(coord, Some(pawn));
 
         let coord = Coord::from_string("e4").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
@@ -351,6 +376,129 @@ mod tests {
         );
     }
 
+    #[test_case("a7", "a5")]
+    #[test_case("b7", "b5")]
+    #[test_case("c7", "c5")]
+    #[test_case("e7", "e5")]
+    fn test_en_passant_fails_rank(from_pos: &str, to_pos: &str) {
+        // Test that en passant fails if the pawn is not on the correct rank
+        let mut board = Board::default();
+
+        // Start the board with a white pawn on e5
+        let coord = Coord::from_string("e5").unwrap();
+        let player = Player::White;
+        let pawn_w = Piece {
+            piece_type: PieceType::Pawn,
+            player,
+        };
+        board.set(coord, Some(pawn_w));
+
+        // Move the black pawn on h7 to h5
+        let to_coord = Coord::from_string(to_pos).unwrap();
+        let from_coord = Coord::from_string(from_pos).unwrap();
+        let pawn_b = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::Black,
+        };
+        let played_move = PlayedMove {
+            piece: pawn_b,
+            from: from_coord,
+            to: to_coord,
+            captured: None,
+        };
+        board.move_history.push(played_move);
+        board.set(to_coord, Some(pawn_b));
+        board.set(from_coord, None);
+
+        // En passant
+        // White pawn on e5 should not be able to capture the black pawn on d5
+        let coord = Coord::from_string("e5").unwrap();
+        let pawn_moves = move_pawn(&board, &coord, player);
+        assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 moves");
+        assert_eq!(pawn_moves[0].captures, None, "Pawn should not capture");
+    }
+
+    #[test]
+    fn test_en_passant_fails_history() {
+        // Test that en passant fails if the last move was not a double pawn move
+
+        let mut board = Board::default();
+        // Start the board with a white pawn on e5
+        let coord = Coord::from_string("e5").unwrap();
+        let player = Player::White;
+        let pawn_w = Piece {
+            piece_type: PieceType::Pawn,
+            player,
+        };
+        board.set(coord, Some(pawn_w));
+
+        // Put the black pawn on d5, without updating the move history!
+        let to_coord = Coord::from_string("d5").unwrap();
+        let from_coord = Coord::from_string("d7").unwrap();
+        let pawn_b = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::Black,
+        };
+        board.set(to_coord, Some(pawn_b));
+        board.set(from_coord, None);
+
+        // En passant
+        // White pawn on e5 should be able to capture the black pawn on d5
+        let coord = Coord::from_string("e5").unwrap();
+        let pawn_moves = move_pawn(&board, &coord, player);
+        assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 move");
+        assert_eq!(pawn_moves[0].captures, None, "Pawn should not capture");
+    }
+
+    #[test_case("d7", "d5", "d6")]
+    #[test_case("f7", "f5", "f6")]
+    fn test_en_passant(from_pos: &str, to_pos: &str, capture_pos: &str) {
+        let mut board = Board::default();
+
+        // Start the board with a white pawn on e5
+        let coord = Coord::from_string("e5").unwrap();
+        let player = Player::White;
+        let pawn_w = Piece {
+            piece_type: PieceType::Pawn,
+            player,
+        };
+        board.set(coord, Some(pawn_w));
+
+        // Move the black pawn on d7 to d5
+        let to_coord = Coord::from_string(to_pos).unwrap();
+        let from_coord = Coord::from_string(from_pos).unwrap();
+        let pawn_b = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::Black,
+        };
+        let played_move = PlayedMove {
+            piece: pawn_b,
+            from: from_coord,
+            to: to_coord,
+            captured: None,
+        };
+        board.move_history.push(played_move);
+        board.set(to_coord, Some(pawn_b));
+        board.set(from_coord, None);
+
+        // En passant
+        // White pawn on e5 should be able to capture the black pawn on d5
+        let coord = Coord::from_string("e5").unwrap();
+        let pawn_moves = move_pawn(&board, &coord, player);
+        assert_eq!(pawn_moves.len(), 2, "Pawn should have 2 moves");
+        assert_eq!(
+            pawn_moves[1].captures,
+            Some(PieceType::Pawn),
+            "Pawn should capture"
+        );
+        assert_eq!(
+            pawn_moves[1].end.to_string(),
+            capture_pos,
+            "Pawn should capture on {}",
+            capture_pos
+        );
+    }
+
     #[test]
     fn test_bishop_on_empty_board() {
         let board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
@@ -370,7 +518,7 @@ mod tests {
             piece_type: PieceType::Rook,
             player: Player::Black,
         };
-        board.set(coord, black_rook);
+        board.set(coord, Some(black_rook));
 
         let coord = Coord::from_string("c2").unwrap();
         let white_rook = Piece {
@@ -378,7 +526,7 @@ mod tests {
             player: Player::White,
         };
 
-        board.set(coord, white_rook);
+        board.set(coord, Some(white_rook));
 
         let coord = Coord::from_string("e4").unwrap();
         let player = Player::White;

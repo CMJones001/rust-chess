@@ -1,5 +1,5 @@
 use super::piece::Piece;
-use super::piece::{Player, PieceType};
+use super::piece::{PieceType, Player};
 use owo_colors::OwoColorize;
 use thiserror::Error;
 
@@ -124,7 +124,10 @@ mod tests {
 
         assert_eq!(result.len(), 64);
 
-        let board = Board { positions: result };
+        let board = Board {
+            positions: result,
+            move_history: vec![],
+        };
         let coord = Coord::from_string("a1").unwrap();
         let expected = Some(Piece::new(PieceType::Rook, Player::White));
         assert_eq!(board.get(coord), expected, "White rook is a1");

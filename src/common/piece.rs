@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Player {
     White,
@@ -28,6 +30,12 @@ pub enum PieceType {
 pub struct Piece {
     pub piece_type: PieceType,
     pub player: Player,
+}
+
+impl Display for Piece {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ascii())
+    }
 }
 
 impl Piece {

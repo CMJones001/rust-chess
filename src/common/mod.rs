@@ -41,18 +41,23 @@ pub enum BoardError {
 #[derive(Debug, Clone)]
 pub struct Board {
     positions: [Option<Piece>; 64],
+    pub move_history: Vec<PlayedMove>,
 }
 
 impl Board {
     fn new() -> Board {
         Board {
             positions: [None; 64],
+            move_history: Vec::new(),
         }
     }
 
     pub fn from_fen_position(fen: &str) -> Result<Board, BoardError> {
         let results = parse_fen_lines(fen)?;
-        Ok(Board { positions: results })
+        Ok(Board {
+            positions: results,
+            move_history: Vec::new(),
+        })
     }
 
     pub fn get(&self, coord: Coord) -> Option<Piece> {
@@ -63,8 +68,8 @@ impl Board {
         self.positions[coord.file as usize + coord.rank as usize * 8].as_mut()
     }
 
-    pub fn set(&mut self, coord: Coord, piece: Piece) {
-        self.positions[coord.file as usize + coord.rank as usize * 8] = Some(piece);
+    pub fn set(&mut self, coord: Coord, piece: Option<Piece>) {
+        self.positions[coord.file as usize + coord.rank as usize * 8] = piece;
     }
 
     /// Give the positions of the board in ascii format.
@@ -98,6 +103,10 @@ impl Board {
             s.push('\n');
         });
         s
+    }
+
+    pub fn last_move(&self) -> Option<PlayedMove> {
+        self.move_history.last().copied()
     }
 
     /// Convert a grid of vector positions to a board.
@@ -191,7 +200,7 @@ impl Coord {
     pub fn relative(&self, dfile: i32, drank: i32) -> Option<Coord> {
         let file = self.file as i32 + dfile;
         let rank = self.rank as i32 + drank;
-        if !(0..7).contains(&file) || !(0..7).contains(&rank) {
+        if !(0..=7).contains(&file) || !(0..=7).contains(&rank) {
             None
         } else {
             Some(Coord {
@@ -202,12 +211,60 @@ impl Coord {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PlayedMove {
+    pub piece: Piece,
+    pub from: Coord,
+    pub to: Coord,
+    pub captured: Option<Piece>,
+}
+
+impl PlayedMove {
+    pub fn new(piece: Piece, from: Coord, to: Coord, captured: Option<Piece>) -> PlayedMove {
+        PlayedMove {
+            piece,
+            from,
+            to,
+            captured,
+        }
+    }
+
+    pub fn is_double_pawn_move(&self) -> bool {
+        match self.piece {
+            Piece {
+                piece_type: PieceType::Pawn,
+                player: Player::White,
+            } => self.from.rank == 1 && self.to.rank == 3,
+            Piece {
+                piece_type: PieceType::Pawn,
+                player: Player::Black,
+            } => self.from.rank == 6 && self.to.rank == 4,
+            _ => false,
+        }
+    }
+}
+
+impl Display for PlayedMove {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let capture_string = match self.captured {
+            Some(p) => format!("x{}", p),
+            None => "".to_string(),
+        };
+        write!(
+            f,
+            "{}: {} -> {}{}",
+            self.piece, self.from, self.to, capture_string
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use indoc::indoc;
     use piece::{PieceType, Player};
     use pretty_assertions::assert_eq;
+    use test_case::test_case;
 
     #[test]
     fn test_coord_print() {
@@ -306,5 +363,76 @@ mod tests {
             expected,
             "White pawn in a1 at the bottom!"
         );
+    }
+
+    #[test]
+    fn test_relative_coords() {
+        let coord = Coord::from_string("g5").unwrap();
+        assert_eq!(
+            coord.relative(1, 0),
+            Some(Coord::from_string("h5").unwrap())
+        );
+        assert_eq!(
+            coord.relative(1, 1),
+            Some(Coord::from_string("h6").unwrap())
+        );
+        assert_eq!(
+            coord.relative(0, 3),
+            Some(Coord::from_string("g8").unwrap())
+        );
+
+        assert_eq!(
+            coord.relative(-1, 0),
+            Some(Coord::from_string("f5").unwrap())
+        );
+        assert_eq!(
+            coord.relative(-1, -1),
+            Some(Coord::from_string("f4").unwrap())
+        );
+
+        assert_eq!(coord.relative(2, 0), None);
+        assert_eq!(coord.relative(0, 4), None);
+    }
+
+    #[test_case("a2", "a4", Player::White; "a file, white")]
+    #[test_case("d2", "d4", Player::White; "d file, white")]
+    #[test_case("a7", "a5", Player::Black; "a file, black")]
+    #[test_case("e7", "e5", Player::Black; "e file, black")]
+    fn test_is_double_pawn_move(from: &str, to: &str, player: Player) {
+        let move_ = PlayedMove::new(
+            Piece::new(PieceType::Pawn, player),
+            Coord::from_string(from).unwrap(),
+            Coord::from_string(to).unwrap(),
+            None,
+        );
+
+        assert!(move_.is_double_pawn_move());
+    }
+
+    #[test_case("a2", "a3", Player::White; "single move")]
+    #[test_case("d2", "d3", Player::White; "triple move?")]
+    #[test_case("a7", "a5", Player::White; "wrong player")]
+    #[test_case("e7", "f6", Player::Black; "capture")]
+    fn test_is_not_double_pawn_move(from: &str, to: &str, player: Player) {
+        let move_ = PlayedMove::new(
+            Piece::new(PieceType::Pawn, player),
+            Coord::from_string(from).unwrap(),
+            Coord::from_string(to).unwrap(),
+            None,
+        );
+
+        assert!(!move_.is_double_pawn_move());
+    }
+
+    #[test]
+    fn test_is_not_double_pawn_move_wrong_piece() {
+        let move_ = PlayedMove::new(
+            Piece::new(PieceType::Rook, Player::White),
+            Coord::from_string("a2").unwrap(),
+            Coord::from_string("a4").unwrap(),
+            None,
+        );
+
+        assert!(!move_.is_double_pawn_move());
     }
 }

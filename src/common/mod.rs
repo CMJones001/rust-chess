@@ -1,51 +1,16 @@
 #![allow(dead_code)]
+mod coord;
+mod errors;
 mod fen_parser;
 mod piece;
 use crate::play_move::PotentialMove;
 use std::default::Default;
 use std::fmt::Display;
-use thiserror::Error;
 
+pub use coord::Coord;
+pub use errors::{AnParseError, BoardError, MoveError};
 use fen_parser::{parse_fen_lines, FENError};
 pub use piece::{Piece, PieceType, Player};
-
-#[derive(Error, Debug)]
-pub enum AnParseError {
-    #[error("Invalid move string: {0}")]
-    InvalidMoveString(String),
-    #[error("Parsing not complete: remains {0} from {1},")]
-    IncompleteParse(String, String),
-}
-
-#[derive(Error, Debug)]
-pub enum BoardError {
-    #[error("Invalid coordinate string: {0}, expected format: [a-h][1-8]")]
-    MalformedCoordinateString(String),
-    #[error("Invalid coordinate: {0:?}, expected char in range: [0-7][0-7]")]
-    CoordinateOutOfRange((usize, usize)),
-    #[error("Unexpected number of ranks: {0}: expected 8")]
-    UnexpectedNumberOfRanks(usize),
-    #[error("Unexpected number of files in rank {1}: {0} expected 8")]
-    UnexpectedNumberOfFiles(usize, usize),
-    #[error("No King found for {0}")]
-    NoKingFound(Player),
-    #[error(transparent)]
-    FenParseError(#[from] FENError),
-    #[error(transparent)]
-    AnParseError(#[from] AnParseError),
-    #[error(transparent)]
-    MoveError(#[from] MoveError),
-}
-
-#[derive(Error, Debug)]
-pub enum MoveError {
-    #[error("Unexpected piece to move, expected {0:?} found {1:?}")]
-    UnexpectedPieceToMove(Piece, Option<Piece>),
-    #[error("Unexpected piece on end position, expected {0:?} found {1:?}")]
-    UnexpectedEndPositionMove(Option<Piece>, Option<Piece>),
-    #[error("En Passant into occupied square: {0}")]
-    EnPassantIntoOccupiedSquare(Piece),
-}
 
 // Coordinates on the board are given by a rank and a file.
 // The file is a letter from a to h, and the rank is a number from 1 to 8.
@@ -90,20 +55,19 @@ impl Board {
     }
 
     pub fn push_move(&mut self, mv: PotentialMove) -> Result<(), BoardError> {
-        // Test that the piece moved is the piece we expect to move.
-
+        // Verify that the piece to move is the expected piece
+        // and that the end position is empty or contains the expected piece
+        // (if the move is a capture)
         if let Some(en_passant) = mv.en_passant {
             let start_piece = self.get(mv.start);
             let end_piece = self.get(mv.end);
             let captured_piece = self.get(en_passant);
             if start_piece != Some(mv.piece) {
-                return Err(MoveError::UnexpectedPieceToMove(mv.piece, start_piece).into());
+                return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
             } else if end_piece != None {
-                return Err(MoveError::EnPassantIntoOccupiedSquare(end_piece.unwrap()).into());
+                return Err(MoveError::EnPassantIntoOccupiedSquare(mv, end_piece.unwrap()).into());
             } else if captured_piece != mv.captures {
-                return Err(
-                    MoveError::UnexpectedEndPositionMove(mv.captures, captured_piece).into(),
-                );
+                return Err(MoveError::UnexpectedEndPositionMove(mv, captured_piece).into());
             } else {
                 self.set(mv.start, None);
                 self.set(mv.end, Some(mv.piece));
@@ -113,9 +77,9 @@ impl Board {
             let start_piece = self.get(mv.start);
             let end_peice = self.get(mv.end);
             if start_piece != Some(mv.piece) {
-                return Err(MoveError::UnexpectedPieceToMove(mv.piece, start_piece).into());
+                return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
             } else if end_peice != mv.captures {
-                return Err(MoveError::UnexpectedEndPositionMove(mv.captures, end_peice).into());
+                return Err(MoveError::UnexpectedEndPositionMove(mv, end_peice).into());
             } else {
                 self.set(mv.start, None);
                 self.set(mv.end, Some(mv.piece));
@@ -203,74 +167,6 @@ impl Default for Board {
         Board::from_fen_position("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR").unwrap()
     }
 }
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Coord {
-    pub file: u8,
-    pub rank: u8,
-}
-
-impl Display for Coord {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let file = self.file + 97;
-        let file = file as char;
-        let rank = self.rank + 1;
-        write!(f, "{}{}", file, rank)
-    }
-}
-
-impl Coord {
-    pub fn from_string(s: &str) -> Result<Coord, BoardError> {
-        if s.len() != 2 {
-            return Err(BoardError::MalformedCoordinateString(s.to_string()));
-        }
-        let mut chars = s.chars();
-        let (file, rank) = (chars.next().unwrap(), chars.next().unwrap());
-        let file = file as u8;
-        let rank = rank as u8;
-        if !(b'a'..=b'h').contains(&file) || !(b'1'..=b'8').contains(&rank) {
-            return Err(BoardError::CoordinateOutOfRange((
-                file as usize,
-                rank as usize,
-            )));
-        }
-        let file = file - 97;
-        let rank = rank - 49;
-        Ok(Coord { file, rank })
-    }
-
-    pub fn new(file: u8, rank: u8) -> Coord {
-        if file > 7 || rank > 7 {
-            panic!("Invalid coordinate: {}{}", file, rank);
-        }
-        Coord { file, rank }
-    }
-
-    pub fn from_index(index: usize) -> Coord {
-        let file = (index % 8) as u8;
-        let rank = (index / 8) as u8;
-        Coord { file, rank }
-    }
-
-    /// Return the coordinate relative to the given value.
-    /// If the coordinate is outside the board, return None.
-    ///  dy is the change in rank, and dx is the change in file.
-    ///  with dy = 1, dx = 0, we get the square above the current square,
-    ///  toward the black pieces.
-    pub fn relative(&self, dfile: i32, drank: i32) -> Option<Coord> {
-        let file = self.file as i32 + dfile;
-        let rank = self.rank as i32 + drank;
-        if !(0..=7).contains(&file) || !(0..=7).contains(&rank) {
-            None
-        } else {
-            Some(Coord {
-                file: file as u8,
-                rank: rank as u8,
-            })
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PlayedMove {
     pub piece: Piece,

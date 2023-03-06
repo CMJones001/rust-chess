@@ -5,8 +5,10 @@ use rust_chess::{valid_moves, Board, Coord, Piece, PieceType, Player, PotentialM
 use rust_chess::plot_moves;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let move_grid = pinning_example()?;
-    println!("{}", move_grid);
+    let pinning = pinning_example()?;
+    for pin in pinning {
+        println!("{}", pin);
+    }
     println!();
 
     let en_passant = en_passant_example()?;
@@ -70,8 +72,9 @@ fn en_passant_example() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(board_strings)
 }
 
-fn pinning_example() -> Result<String, Box<dyn std::error::Error>> {
+fn pinning_example() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
+    let mut move_list = vec![];
 
     let coord = Coord::from_string("e1").unwrap();
     let piece_k = Piece {
@@ -87,14 +90,15 @@ fn pinning_example() -> Result<String, Box<dyn std::error::Error>> {
     };
     board.set(coord, Some(piece_r));
 
-    let coord = Coord::from_string("e4").unwrap();
+    let queen_coord = Coord::from_string("e4").unwrap();
     let piece_q = Piece {
         piece_type: PieceType::Queen,
         player: Player::White,
     };
-    board.set(coord, Some(piece_q));
+    board.set(queen_coord, Some(piece_q));
 
-    let moves = valid_moves(&board, coord, true).map_err(|e| e.to_string())?;
-    let move_grid = plot_moves(&board, &moves, false);
-    Ok(move_grid)
+    let moves = valid_moves(&board, queen_coord, true).map_err(|e| e.to_string())?;
+    let queen_moves = plot_moves(&board, &moves, false);
+    move_list.push(queen_moves);
+    Ok(move_list)
 }

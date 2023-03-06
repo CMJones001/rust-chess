@@ -1,4 +1,5 @@
 use crate::common::{Board, Coord, Piece, PieceType, Player};
+use std::fmt::{Display, Formatter};
 
 use thiserror::Error;
 
@@ -15,6 +16,20 @@ pub struct PotentialMove {
     pub piece: Piece,
     pub captures: Option<Piece>,
     pub en_passant: Option<Coord>,
+}
+
+impl Display for PotentialMove {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        let capture_string = match self.captures {
+            Some(p) => format!("x{}", p),
+            None => "".to_string(),
+        };
+        write!(
+            f,
+            "{}: {} -> {}{}",
+            self.piece, self.start, self.end, capture_string
+        )
+    }
 }
 
 impl PotentialMove {
@@ -671,5 +686,44 @@ mod tests {
 
         let captures = moves.iter().filter(|m| m.captures.is_some()).count();
         assert_eq!(captures, 1, "Queen should have 1 capture");
+    }
+
+    #[test]
+    fn test_force_move_out_of_check() {
+        // Place a white queen threatening the black king, none of blacks
+        // pieces should be able to move unless it stops check
+        let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
+
+        let coord = Coord::from_string("e1").unwrap();
+        let piece_k = Piece {
+            piece_type: PieceType::King,
+            player: Player::Black,
+        };
+        board.set(coord, Some(piece_k));
+
+        let coord = Coord::from_string("e8").unwrap();
+        let piece_q = Piece {
+            piece_type: PieceType::Queen,
+            player: Player::White,
+        };
+        board.set(coord, Some(piece_q));
+
+        assert!(
+            is_in_check(&board, Player::Black),
+            "Black should be in check"
+        );
+
+        let coord_r = Coord::from_string("a3").unwrap();
+        let piece_r = Piece {
+            piece_type: PieceType::Rook,
+            player: Player::Black,
+        };
+        board.set(coord_r, Some(piece_r));
+
+        let moves = valid_moves(&board, coord_r, true).unwrap();
+        assert_eq!(moves.len(), 1, "Rook should only have 1 move");
+
+        let move_ = moves[0];
+        assert_eq!(move_.end.to_string(), "e3", "Rook should move to a3");
     }
 }

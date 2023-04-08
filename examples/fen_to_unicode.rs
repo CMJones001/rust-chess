@@ -1,3 +1,7 @@
+//! Parse a FEN string and print the board
+//! 
+//! This can either be done as ASCII or Unicode.
+
 use clap::Parser;
 use rust_chess::{Board, BoardError};
 

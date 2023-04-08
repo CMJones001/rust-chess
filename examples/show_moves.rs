@@ -1,4 +1,7 @@
 //! Show the  moves available to a piece on an ascii board.
+//! 
+//! This is a simple example of how to use the `valid_moves` function
+//! and how to plot the moves on an ascii board.
 
 use rust_chess::{valid_moves, Board, Coord, Piece, PieceType, Player, PotentialMove};
 
@@ -6,11 +9,13 @@ use rust_chess::plot_moves;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pinning = pinning_example()?;
+    println!("Example of pinning:");
     for pin in pinning {
         println!("{}", pin);
     }
     println!();
 
+    println!("Example of en Passant:");
     let en_passant = en_passant_example()?;
     for line in en_passant {
         println!("{}", line);
@@ -32,6 +37,13 @@ fn general_moves() -> Result<String, Box<dyn std::error::Error>> {
     Ok(move_grid)
 }
 
+/// Example of en passant
+/// 
+/// Here we show the moves available to the white pawn on e5
+/// after the black pawn on d7 has moved to d5.
+/// 
+/// This is a unique capture where the taken piece is not on the end
+/// square.
 fn en_passant_example() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut board_strings = vec![];
     let mut board = Board::default();
@@ -72,6 +84,11 @@ fn en_passant_example() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(board_strings)
 }
 
+/// Example of pinning
+/// 
+/// Here we show the moves available to the white queen on e4
+/// when pinned by the black rook on e8. It can only move
+/// on the e file.
 fn pinning_example() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
     let mut move_list = vec![];

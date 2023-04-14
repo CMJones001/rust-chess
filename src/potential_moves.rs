@@ -20,6 +20,7 @@ pub struct PotentialMove {
     pub end: Coord,
     pub piece: Piece,
     pub captures: Option<Piece>,
+    // The coordinate of the piece that is captured by an en passant move
     pub en_passant: Option<Coord>,
 }
 
@@ -74,8 +75,15 @@ impl PotentialMove {
 /// * `board` - The board to check
 /// * `coord` - The coordinate of the piece to check
 /// * `remove_checks` - If true, remove moves that would put the player in check
-///              (this is important, as a piece can still threaten a king even if the actual move
-///              would put the player in check)
+///
+/// # Notes
+///
+/// If `remove_checks` then this function will call itself to remove moves that would put the player
+/// in check. The first pass will generate all possible moves and the second pass will remove moves
+/// that would put the player in check.
+///
+/// Fortunately, the second pass does not need to be recursive as it does not need to remove check
+/// moves as piece can still threaten check even if it cannot move in practically, due to a pin.
 pub fn list_valid_moves(
     board: &Board,
     coord: Coord,
@@ -97,13 +105,14 @@ pub fn list_valid_moves(
 
     // For the second pass, we need to know if the player is in check
     // Perform the move and see if the player is in check
-    // TODO: Might we be able to do this without cloning the board?
     // TODO: Is there a subset of moves we can check that would be faster?
+    let mut board = board.clone();
     if remove_checks {
         moves.retain(|m| {
-            let mut board = board.clone();
             board.push_move(*m).unwrap();
-            !is_in_check(&board, player)
+            let in_check = !is_in_check(&board, player);
+            board.pop_move().unwrap(); // Should never fail as we just pushed
+            in_check
         });
     }
     Ok(moves)
@@ -500,6 +509,7 @@ mod tests {
             start: from_coord,
             end: to_coord,
             captures: None,
+            en_passant: None,
         };
         board.move_history.push(played_move);
         board.set(to_coord, Some(pawn_b));
@@ -571,6 +581,7 @@ mod tests {
             start: from_coord,
             end: to_coord,
             captures: None,
+            en_passant: None,
         };
         board.move_history.push(played_move);
         board.set(to_coord, Some(pawn_b));

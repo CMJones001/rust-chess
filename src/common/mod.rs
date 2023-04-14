@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-mod board_wasm;
 mod coord;
 mod errors;
 mod fen_parser;
@@ -21,7 +20,7 @@ pub use piece::{Piece, PieceType, Player};
 // to 1d coordinates. Index 0 to 7 cover the first rank, 8 to 15 cover the second rank, etc.
 //
 // The elements in the board array are Option<Peice>, so we can represent empty squares.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub positions: [Option<Piece>; 64],
     pub move_history: Vec<PlayedMove>,
@@ -107,6 +106,27 @@ impl Board {
 
         self.move_history.push(mv.into());
         Ok(())
+    }
+
+    /// Undo the last move.
+    ///
+    /// This will remove the last move from the move history, and update the board to reflect
+    /// the move. Returns an error if there are no moves to undo.
+    pub fn pop_move(&mut self) -> Result<PlayedMove, BoardError> {
+        let mv = self.move_history.pop().ok_or(BoardError::NoMoveToUndo)?;
+
+        // Set the moved piece back to the start position
+        self.set(mv.start, Some(mv.piece));
+
+        // Set the captured piece back to the end position
+        if let Some(en_passant) = mv.en_passant {
+            self.set(en_passant, mv.captures);
+            self.set(mv.end, None);
+        } else {
+            self.set(mv.end, mv.captures);
+        }
+
+        Ok(mv)
     }
 
     /// Give the positions of the board in ascii format.
@@ -199,15 +219,25 @@ pub struct PlayedMove {
     pub start: Coord,
     pub end: Coord,
     pub captures: Option<Piece>,
+    // The coordinate of the piece that was captured by en passant.
+    pub en_passant: Option<Coord>,
 }
 
 impl PlayedMove {
-    pub fn new(piece: Piece, start: Coord, end: Coord, captures: Option<Piece>) -> PlayedMove {
+    // By default a move is not an en passant.
+    pub fn new(
+        piece: Piece,
+        start: Coord,
+        end: Coord,
+        captures: Option<Piece>,
+        en_passant: Option<Coord>,
+    ) -> PlayedMove {
         PlayedMove {
             piece,
             start,
             end,
             captures,
+            en_passant,
         }
     }
 
@@ -247,6 +277,7 @@ impl From<PotentialMove> for PlayedMove {
             start: potential_move.start,
             end: potential_move.end,
             captures: potential_move.captures,
+            en_passant: potential_move.en_passant,
         }
     }
 }
@@ -254,6 +285,7 @@ impl From<PotentialMove> for PlayedMove {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::list_valid_moves;
     use indoc::indoc;
     use piece::{PieceType, Player};
     use pretty_assertions::assert_eq;
@@ -315,6 +347,7 @@ mod tests {
             Coord::from_string(from).unwrap(),
             Coord::from_string(to).unwrap(),
             None,
+            None,
         );
 
         assert!(move_.is_double_pawn_move());
@@ -330,6 +363,7 @@ mod tests {
             Coord::from_string(from).unwrap(),
             Coord::from_string(to).unwrap(),
             None,
+            None,
         );
 
         assert!(!move_.is_double_pawn_move());
@@ -341,6 +375,7 @@ mod tests {
             Piece::new(PieceType::Rook, Player::White),
             Coord::from_string("a2").unwrap(),
             Coord::from_string("a4").unwrap(),
+            None,
             None,
         );
 
@@ -415,5 +450,124 @@ mod tests {
 
         assert_eq!(board_strings[0], expected_start);
         assert_eq!(board_strings[1], expected_end);
+    }
+
+    #[test]
+    /// Testing a move that is not a capture.
+    fn test_undo_simple_move() {
+        let mut board = Board::default();
+        let board_original = Board::default();
+        let from_coord: Coord = "e2".parse().unwrap();
+        let to_coord: Coord = "e4".parse().unwrap();
+        let pawn = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::White,
+        };
+
+        let move_ = PotentialMove::new(from_coord, to_coord, pawn, None);
+        board.push_move(move_).unwrap();
+
+        board.pop_move().unwrap();
+
+        assert_eq!(board, board_original);
+    }
+
+    #[test]
+    /// Undoing a capture move.
+    fn test_undo_capture_move() {
+        let mut board = Board::new();
+
+        // Set up a board with white rook on e4 and black queen on e6
+        let from_coord: Coord = "e4".parse().unwrap();
+        let to_coord: Coord = "e6".parse().unwrap();
+        let rook = Piece {
+            piece_type: PieceType::Rook,
+            player: Player::White,
+        };
+        let queen = Piece {
+            piece_type: PieceType::Queen,
+            player: Player::Black,
+        };
+
+        board.set(from_coord, Some(rook));
+        board.set(to_coord, Some(queen));
+
+        let board_original = board.clone();
+        let n_pieces = board_original
+            .positions
+            .iter()
+            .filter(|p| p.is_some())
+            .count();
+        assert_eq!(n_pieces, 2);
+
+        // White rook on e4 captures black queen on e6
+        let move_ = PotentialMove::new(from_coord, to_coord, rook, Some(queen));
+        board.push_move(move_).unwrap();
+        let n_pieces = board.positions.iter().filter(|p| p.is_some()).count();
+        // Capture removes a piece
+        assert_eq!(n_pieces, 1);
+
+        // Undo the move and check that the board is the same as before
+        let move_returned = board.pop_move().unwrap();
+        let expected_move: PlayedMove = move_.into();
+        assert_eq!(expected_move, move_returned);
+        assert_eq!(board, board_original);
+
+        // Check that the number of pieces is the same as before
+        let n_pieces = board.positions.iter().filter(|p| p.is_some()).count();
+        assert_eq!(n_pieces, 2);
+    }
+
+    #[test]
+    fn test_undo_en_passant() {
+        let mut board = Board::default();
+
+        // Add a white pawn on e5
+        let coord = Coord::from_string("e5").unwrap();
+        let player = Player::White;
+        let pawn_w = Piece {
+            piece_type: PieceType::Pawn,
+            player,
+        };
+        board.set(coord, Some(pawn_w));
+
+        // Move the black pawn on d7 to d5
+        let from_coord: Coord = "d7".parse().unwrap();
+        let to_coord: Coord = "d5".parse().unwrap();
+        let pawn_b = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::Black,
+        };
+        let move_ = PotentialMove::new(from_coord, to_coord, pawn_b, None);
+        board.push_move(move_).unwrap();
+        let board_original = board.clone();
+        println!("{}", board.to_string());
+
+        // En passant
+        // White pawn on e5 captures the pawn on d5
+        let coord: Coord = "e5".parse().unwrap();
+        let pawn_moves = list_valid_moves(&board, coord, false).unwrap();
+        let en_passant_move = pawn_moves.iter().find(|m| m.captures.is_some()).unwrap();
+        board.push_move(*en_passant_move).unwrap();
+        println!("{}", board.to_string());
+
+        // There are now two moves in the history
+        assert_eq!(board.move_history.len(), 2);
+
+        // Undo the en passant move
+        let move_returned = board.pop_move().unwrap();
+        let expected_move: PlayedMove = (*en_passant_move).into();
+        assert_eq!(move_returned, expected_move);
+        assert_eq!(board.to_string(), board_original.to_string());
+    }
+
+    #[test]
+    /// If there are no moves, undoing should fail.
+    fn test_undo_fails() {
+        let mut board = Board::default();
+        let result = board.pop_move();
+
+        assert!(result.is_err());
+        matches!(result.unwrap_err(), BoardError::NoMoveToUndo);
     }
 }

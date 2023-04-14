@@ -22,6 +22,8 @@ pub struct PotentialMove {
     pub captures: Option<Piece>,
     // The coordinate of the piece that is captured by an en passant move
     pub en_passant: Option<Coord>,
+    // A potential promotion for a pawn, for now we don't consider the piece type.
+    pub promotion: bool,
 }
 
 impl Display for PotentialMove {
@@ -47,23 +49,26 @@ impl PotentialMove {
             piece,
             captures,
             en_passant: None,
+            promotion: false,
         }
     }
 
-    /// Create a new potential move that performs an en passant capture
-    fn new_en_passant(
+    /// Prawns can be promoted, so we need to create a new potential move for that
+    fn new_prawn(
         start: Coord,
         end: Coord,
         piece: Piece,
         captures: Option<Piece>,
-        capture_coords: Coord,
+        en_passant: Option<Coord>,
+        promotion: bool,
     ) -> Self {
         PotentialMove {
             start,
             end,
             piece,
             captures,
-            en_passant: Some(capture_coords),
+            en_passant,
+            promotion,
         }
     }
 }
@@ -325,31 +330,41 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
         Player::White => 1,
         Player::Black => -1,
     };
+    let starting_rank = match player {
+        Player::White => 1,
+        Player::Black => 6,
+    };
+    let end_rank = match player {
+        Player::White => 7,
+        Player::Black => 0,
+    };
 
     // Single move forward for white
     if let Some(foward_coord) = coord.relative(0, direction) {
+        let promotion = foward_coord.rank == end_rank;
         if board.get(foward_coord).is_none() {
-            let move_ = PotentialMove::new(
+            let move_ = PotentialMove::new_prawn(
                 *coord,
                 foward_coord,
                 Piece::new(PieceType::Pawn, player),
                 None,
+                None,
+                promotion,
             );
             moves.push(move_);
 
             // Double move forward if on starting rank
-            let starting_rank = match player {
-                Player::White => 1,
-                Player::Black => 6,
-            };
             if coord.rank == starting_rank {
                 if let Some(foward_coord) = coord.relative(0, 2 * direction) {
                     if board.get(foward_coord).is_none() {
-                        let move_ = PotentialMove::new(
+                        // Can't promote on double move
+                        let move_ = PotentialMove::new_prawn(
                             *coord,
                             foward_coord,
                             Piece::new(PieceType::Pawn, player),
                             None,
+                            None,
+                            false,
                         );
                         moves.push(move_);
                     }
@@ -362,12 +377,20 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
     for (x, y) in &[(1, direction), (-1, direction)] {
         if let Some(capture_coord) = coord.relative(*x, *y) {
             if let Some(capture_piece) = board.get(capture_coord) {
+                let end_rank = match player {
+                    Player::White => 7,
+                    Player::Black => 0,
+                };
+
                 if capture_piece.player != player {
-                    let move_ = PotentialMove::new(
+                    let promotion = capture_coord.rank == end_rank;
+                    let move_ = PotentialMove::new_prawn(
                         *coord,
                         capture_coord,
                         Piece::new(PieceType::Pawn, player),
                         Some(capture_piece),
+                        None,
+                        promotion,
                     );
                     moves.push(move_);
                 }
@@ -386,12 +409,15 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
                     Player::Black => y_piece - 1,
                 };
 
-                let move_ = PotentialMove::new_en_passant(
+                // Promotion on en passant should not be possible, but we'll check anyway
+                let promotion = new_rank == end_rank;
+                let move_ = PotentialMove::new_prawn(
                     *coord,
                     Coord::new(x_last, new_rank),
                     Piece::new(PieceType::Pawn, player),
                     Some(last_move.piece),
-                    last_move.end,
+                    Some(last_move.end),
+                    promotion,
                 );
                 moves.push(move_);
             }
@@ -745,5 +771,101 @@ mod tests {
 
         let move_ = moves[0];
         assert_eq!(move_.end.to_string(), "e3", "Rook should move to a3");
+    }
+
+    #[test]
+    fn test_simple_promotion_white() {
+        // Empty board with a pawn on a7
+        let board = Board::from_fen_position("8/P7/8/8/8/8/8/8").unwrap();
+        let coord = Coord::from_str("a7").unwrap();
+
+        // The prawn should be able to move to a8 and promote
+        let moves = list_valid_moves(&board, coord, true).unwrap();
+        assert_eq!(moves.len(), 1, "Pawn should have 1 move");
+
+        let move_ = moves[0];
+        assert_eq!(move_.end.to_string(), "a8", "Pawn should move to a8");
+        assert!(move_.promotion, "Pawn should promote");
+    }
+
+    #[test]
+    fn test_simple_promotion_black() {
+        // Empty board with a pawn on c2
+        let board = Board::from_fen_position("8/8/8/8/8/8/2p5/8").unwrap();
+        let coord = Coord::from_str("c2").unwrap();
+
+        // The prawn should be able to move to c1 and promote
+        let moves = list_valid_moves(&board, coord, true).unwrap();
+        assert_eq!(moves.len(), 1, "Pawn should have 1 move");
+
+        let move_ = moves[0];
+        assert_eq!(move_.end.to_string(), "c1", "Pawn should move to c1");
+        assert!(move_.promotion, "Pawn should promote");
+    }
+
+    #[test]
+    fn test_capture_and_promotion_white() {
+        // Board with a pawn on a7 and a black queen on b8
+        let board = Board::from_fen_position("1q6/P7/8/8/8/8/8/8").unwrap();
+        let pawn_coord = Coord::from_str("a7").unwrap();
+        let queen_coord: Coord = Coord::from_str("b8").unwrap();
+
+        // The pawn should be able to move to b8 and promote
+        let moves = list_valid_moves(&board, pawn_coord, true).unwrap();
+        assert_eq!(moves.len(), 2, "Pawn should have 2 moves");
+
+        // Diagonal promotion
+        let move_ = moves.iter().find(|m| m.captures.is_some()).unwrap();
+        assert_eq!(move_.end, queen_coord, "Pawn should move to b8");
+        assert!(move_.promotion, "Pawn should promote");
+
+        // Direct move forward
+        let move_ = moves.iter().find(|m| m.captures.is_none()).unwrap();
+        assert_eq!(
+            move_.end,
+            Coord::from_str("a8").unwrap(),
+            "Pawn should move to a8"
+        );
+        assert!(move_.promotion, "Pawn should promote");
+    }
+
+    #[test]
+    fn test_capture_and_promotion_black() {
+        // Black with a pawn on c2, knight on c1 and a white queen on b1.
+        let board = Board::from_fen_position("8/8/8/8/8/8/2p5/1Qn5").unwrap();
+        let pawn_coord = Coord::from_str("c2").unwrap();
+        let queen_coord: Coord = Coord::from_str("b1").unwrap();
+
+        // Only valid move is the capture and promotion, as the knight is blocking the pawn
+        let moves = list_valid_moves(&board, pawn_coord, true).unwrap();
+        assert_eq!(moves.len(), 1, "Pawn should have 1 moves");
+
+        // The pawn should be able to move to b1 and promote
+        let move_ = moves.iter().find(|m| m.captures.is_some()).unwrap();
+        assert_eq!(move_.end, queen_coord, "Pawn should move to b1");
+        assert!(move_.promotion, "Pawn should promote");
+    }
+
+    #[test_case("8/8/1P6/8/8/8/8/8"; "White pawn on b6")]
+    #[test_case("1q6/1P6/8/8/8/8/8/8"; "Pawn on b6 blocked")]
+    fn test_no_promotion(fen_string: &str) {
+        let board = Board::from_fen_position(fen_string).unwrap();
+        let _white_pawn = Piece {
+            piece_type: PieceType::Pawn,
+            player: Player::White,
+        };
+        let (pawn_index, _) = board
+            .positions
+            .iter()
+            .enumerate()
+            .find(|(_num, p)| matches!(p, Some(_white_pawn)))
+            .expect("Board should have a white pawn");
+        let coord = Coord::from_index(pawn_index);
+
+        // Test that no moves promote
+        let moves = list_valid_moves(&board, coord, true).unwrap();
+        for move_ in moves {
+            assert!(!move_.promotion, "Pawn should not promote");
+        }
     }
 }

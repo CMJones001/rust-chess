@@ -21,6 +21,8 @@ pub enum BoardError {
     UnexpectedNumberOfRanks(usize),
     #[error("Unexpected number of files in rank {1}: {0} expected 8")]
     UnexpectedNumberOfFiles(usize, usize),
+    #[error("No move to undo")]
+    NoMoveToUndo,
     #[error(transparent)]
     FenParseError(#[from] FENError),
     #[error(transparent)]

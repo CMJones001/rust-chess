@@ -1,3 +1,8 @@
+//! Generate the list of valid moves for a given piece.
+//!
+//! The main function is `list_valid_moves` which takes a board and a coordinate and returns a list of
+//! potential moves. `plot_moves` will take a board and a list of potential moves and return a
+//! string representation of the board with the moves marked.
 use crate::common::{Board, Coord, Piece, PieceType, Player};
 use std::fmt::{Display, Formatter};
 
@@ -33,6 +38,7 @@ impl Display for PotentialMove {
 }
 
 impl PotentialMove {
+    /// By default, we assume a move does not perform an en passant capture to simplify the code
     pub fn new(start: Coord, end: Coord, piece: Piece, captures: Option<Piece>) -> Self {
         PotentialMove {
             start,
@@ -43,6 +49,7 @@ impl PotentialMove {
         }
     }
 
+    /// Create a new potential move that performs an en passant capture
     fn new_en_passant(
         start: Coord,
         end: Coord,
@@ -60,17 +67,16 @@ impl PotentialMove {
     }
 }
 
-// Return a list of valid moves for the piece at the given location
-// TODO: Perform a second pass to remove moves that would put the player in check
-// TODO: Add support for castling
-//
-// # Arguments
-// * `board` - The board to check
-// * `coord` - The coordinate of the piece to check
-// * `remove_checks` - If true, remove moves that would put the player in check
-//              (this is important, as a piece can still threaten a king even if the actual move
-//              would put the player in check)
-pub fn valid_moves(
+/// Return a list of valid moves for the piece at the given location
+/// TODO: Add support for castling
+///
+/// # Arguments
+/// * `board` - The board to check
+/// * `coord` - The coordinate of the piece to check
+/// * `remove_checks` - If true, remove moves that would put the player in check
+///              (this is important, as a piece can still threaten a king even if the actual move
+///              would put the player in check)
+pub fn list_valid_moves(
     board: &Board,
     coord: Coord,
     remove_checks: bool,
@@ -91,6 +97,8 @@ pub fn valid_moves(
 
     // For the second pass, we need to know if the player is in check
     // Perform the move and see if the player is in check
+    // TODO: Might we be able to do this without cloning the board?
+    // TODO: Is there a subset of moves we can check that would be faster?
     if remove_checks {
         moves.retain(|m| {
             let mut board = board.clone();
@@ -102,7 +110,6 @@ pub fn valid_moves(
 }
 
 pub fn is_in_check(board: &Board, player: Player) -> bool {
-    // TODO: Would be slightly cleaner to move this to the board struct
     let opponent_player = player.opponent();
     let opponent_pieces: Vec<_> = board
         .positions
@@ -122,7 +129,7 @@ pub fn is_in_check(board: &Board, player: Player) -> bool {
         .collect();
 
     opponent_pieces.into_iter().any(|(coord, _piece)| {
-        let moves = valid_moves(board, coord, false).unwrap();
+        let moves = list_valid_moves(board, coord, false).unwrap();
         moves.iter().any(|m| {
             if let Some(c) = m.captures {
                 c.piece_type == PieceType::King
@@ -133,6 +140,7 @@ pub fn is_in_check(board: &Board, player: Player) -> bool {
     })
 }
 
+/// Return a string representation of the board, with the given moves highlighted
 pub fn plot_moves(board: &Board, moves: &[PotentialMove], unicode: bool) -> String {
     let blank = if unicode { ' ' } else { '.' };
     let mut s = String::new();
@@ -367,7 +375,7 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
                 let new_rank = match player {
                     Player::White => y_piece + 1,
                     Player::Black => y_piece - 1,
-                } as u8;
+                };
 
                 let move_ = PotentialMove::new_en_passant(
                     *coord,
@@ -388,18 +396,19 @@ fn move_pawn(board: &Board, coord: &Coord, player: Player) -> Vec<PotentialMove>
 mod tests {
     use super::*;
     use crate::common::{Board, Coord, Piece, PieceType, PlayedMove, Player};
+    use std::str::FromStr;
     use test_case::test_case;
 
     #[test]
     fn test_moves_pawn() {
         let board = Board::default();
-        let coord = Coord::from_string("e2").unwrap();
+        let coord = Coord::from_str("e2").unwrap();
         let player = Player::White;
 
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 2, "Pawn should have 2 moves");
 
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 move");
     }
@@ -407,7 +416,7 @@ mod tests {
     #[test]
     fn test_moves_pawn_capture() {
         let mut board = Board::default();
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let player = Player::White;
 
         let pawn = Piece {
@@ -416,14 +425,14 @@ mod tests {
         };
         board.set(coord, Some(pawn));
 
-        let coord = Coord::from_string("d5").unwrap();
+        let coord = Coord::from_str("d5").unwrap();
         let pawn = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
         };
         board.set(coord, Some(pawn));
 
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
 
         assert_eq!(pawn_moves[0].captures, None, "First move is not a capture");
@@ -437,7 +446,7 @@ mod tests {
     #[test]
     fn test_moves_pawn_black() {
         let board = Board::default();
-        let coord = Coord::from_string("e7").unwrap();
+        let coord = Coord::from_str("e7").unwrap();
         let player = Player::Black;
 
         let pawn_moves = move_pawn(&board, &coord, player);
@@ -452,7 +461,7 @@ mod tests {
             );
         }
 
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 move");
         assert_eq!(
@@ -471,7 +480,7 @@ mod tests {
         let mut board = Board::default();
 
         // Start the board with a white pawn on e5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let player = Player::White;
         let pawn_w = Piece {
             piece_type: PieceType::Pawn,
@@ -480,8 +489,8 @@ mod tests {
         board.set(coord, Some(pawn_w));
 
         // Move the black pawn on h7 to h5
-        let to_coord = Coord::from_string(to_pos).unwrap();
-        let from_coord = Coord::from_string(from_pos).unwrap();
+        let to_coord = Coord::from_str(to_pos).unwrap();
+        let from_coord = Coord::from_str(from_pos).unwrap();
         let pawn_b = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
@@ -498,7 +507,7 @@ mod tests {
 
         // En passant
         // White pawn on e5 should not be able to capture the black pawn on d5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 moves");
         assert_eq!(pawn_moves[0].captures, None, "Pawn should not capture");
@@ -510,7 +519,7 @@ mod tests {
 
         let mut board = Board::default();
         // Start the board with a white pawn on e5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let player = Player::White;
         let pawn_w = Piece {
             piece_type: PieceType::Pawn,
@@ -519,8 +528,8 @@ mod tests {
         board.set(coord, Some(pawn_w));
 
         // Put the black pawn on d5, without updating the move history!
-        let to_coord = Coord::from_string("d5").unwrap();
-        let from_coord = Coord::from_string("d7").unwrap();
+        let to_coord = Coord::from_str("d5").unwrap();
+        let from_coord = Coord::from_str("d7").unwrap();
         let pawn_b = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
@@ -530,7 +539,7 @@ mod tests {
 
         // En passant
         // White pawn on e5 should be able to capture the black pawn on d5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 1, "Pawn should have 1 move");
         assert_eq!(pawn_moves[0].captures, None, "Pawn should not capture");
@@ -542,7 +551,7 @@ mod tests {
         let mut board = Board::default();
 
         // Start the board with a white pawn on e5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let player = Player::White;
         let pawn_w = Piece {
             piece_type: PieceType::Pawn,
@@ -551,8 +560,8 @@ mod tests {
         board.set(coord, Some(pawn_w));
 
         // Move the black pawn on d7 to d5
-        let to_coord = Coord::from_string(to_pos).unwrap();
-        let from_coord = Coord::from_string(from_pos).unwrap();
+        let to_coord = Coord::from_str(to_pos).unwrap();
+        let from_coord = Coord::from_str(from_pos).unwrap();
         let pawn_b = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
@@ -569,7 +578,7 @@ mod tests {
 
         // En passant
         // White pawn on e5 should be able to capture the black pawn on d5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord = Coord::from_str("e5").unwrap();
         let pawn_moves = move_pawn(&board, &coord, player);
         assert_eq!(pawn_moves.len(), 2, "Pawn should have 2 moves");
         assert_eq!(
@@ -588,7 +597,7 @@ mod tests {
     #[test]
     fn test_bishop_on_empty_board() {
         let board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let player = Player::White;
 
         let bishop_moves = move_bishop(&board, &coord, player);
@@ -599,14 +608,14 @@ mod tests {
     fn test_bishop_with_pieces() {
         let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
 
-        let coord = Coord::from_string("g6").unwrap();
+        let coord = Coord::from_str("g6").unwrap();
         let black_rook = Piece {
             piece_type: PieceType::Rook,
             player: Player::Black,
         };
         board.set(coord, Some(black_rook));
 
-        let coord = Coord::from_string("c2").unwrap();
+        let coord = Coord::from_str("c2").unwrap();
         let white_rook = Piece {
             piece_type: PieceType::Rook,
             player: Player::White,
@@ -614,7 +623,7 @@ mod tests {
 
         board.set(coord, Some(white_rook));
 
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let player = Player::White;
 
         let bishop_moves = move_bishop(&board, &coord, player);
@@ -628,14 +637,14 @@ mod tests {
     fn test_check() {
         let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
 
-        let coord = Coord::from_string("e1").unwrap();
+        let coord = Coord::from_str("e1").unwrap();
         let piece_w = Piece {
             piece_type: PieceType::King,
             player: Player::White,
         };
         board.set(coord, Some(piece_w));
 
-        let coord = Coord::from_string("e8").unwrap();
+        let coord = Coord::from_str("e8").unwrap();
         let piece_b = Piece {
             piece_type: PieceType::Rook,
             player: Player::Black,
@@ -655,21 +664,21 @@ mod tests {
         // The Q can move in the rank, but not elsewhere
         let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
 
-        let coord = Coord::from_string("e1").unwrap();
+        let coord = Coord::from_str("e1").unwrap();
         let piece_k = Piece {
             piece_type: PieceType::King,
             player: Player::White,
         };
         board.set(coord, Some(piece_k));
 
-        let coord = Coord::from_string("e8").unwrap();
+        let coord = Coord::from_str("e8").unwrap();
         let piece_r = Piece {
             piece_type: PieceType::Rook,
             player: Player::Black,
         };
         board.set(coord, Some(piece_r));
 
-        let coord = Coord::from_string("e4").unwrap();
+        let coord = Coord::from_str("e4").unwrap();
         let piece_q = Piece {
             piece_type: PieceType::Queen,
             player: Player::White,
@@ -681,7 +690,7 @@ mod tests {
             "White should not be in check"
         );
 
-        let moves = valid_moves(&board, coord, true).unwrap();
+        let moves = list_valid_moves(&board, coord, true).unwrap();
         assert_eq!(moves.len(), 6, "Queen should have 6 moves");
 
         let captures = moves.iter().filter(|m| m.captures.is_some()).count();
@@ -694,14 +703,14 @@ mod tests {
         // pieces should be able to move unless it stops check
         let mut board = Board::from_fen_position("8/8/8/8/8/8/8/8").unwrap();
 
-        let coord = Coord::from_string("e1").unwrap();
+        let coord = Coord::from_str("e1").unwrap();
         let piece_k = Piece {
             piece_type: PieceType::King,
             player: Player::Black,
         };
         board.set(coord, Some(piece_k));
 
-        let coord = Coord::from_string("e8").unwrap();
+        let coord = Coord::from_str("e8").unwrap();
         let piece_q = Piece {
             piece_type: PieceType::Queen,
             player: Player::White,
@@ -713,14 +722,14 @@ mod tests {
             "Black should be in check"
         );
 
-        let coord_r = Coord::from_string("a3").unwrap();
+        let coord_r = Coord::from_str("a3").unwrap();
         let piece_r = Piece {
             piece_type: PieceType::Rook,
             player: Player::Black,
         };
         board.set(coord_r, Some(piece_r));
 
-        let moves = valid_moves(&board, coord_r, true).unwrap();
+        let moves = list_valid_moves(&board, coord_r, true).unwrap();
         assert_eq!(moves.len(), 1, "Rook should only have 1 move");
 
         let move_ = moves[0];

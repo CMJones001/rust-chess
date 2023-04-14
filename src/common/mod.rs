@@ -1,9 +1,10 @@
 #![allow(dead_code)]
+mod board_wasm;
 mod coord;
 mod errors;
 mod fen_parser;
 mod piece;
-use crate::play_move::PotentialMove;
+use crate::potential_moves::PotentialMove;
 use std::default::Default;
 use std::fmt::Display;
 
@@ -27,6 +28,9 @@ pub struct Board {
 }
 
 impl Board {
+    /// Create a new board with all squares empty.
+    /// If you want to create a board with a specific position, use `from_fen_position` or
+    /// the `Board::default` implementation for the standard positions.
     fn new() -> Board {
         Board {
             positions: [None; 64],
@@ -34,6 +38,9 @@ impl Board {
         }
     }
 
+    /// Create a new board with the given position.
+    /// The position is given as a FEN string.
+    /// See https://en.wikipedia.org/wiki/Forsyth-Edwards_Notation for details.
     pub fn from_fen_position(fen: &str) -> Result<Board, BoardError> {
         let results = parse_fen_lines(fen)?;
         Ok(Board {
@@ -42,18 +49,30 @@ impl Board {
         })
     }
 
+    /// Returns the piece at the given coordinate, or `None` if the square is empty.
     pub fn get(&self, coord: Coord) -> Option<Piece> {
         self.positions[coord.file as usize + coord.rank as usize * 8]
     }
 
+    /// Returns a mutable reference to the piece at the given coordinate, or `None` if the
+    /// square is empty.
     pub fn get_mut(&mut self, coord: Coord) -> Option<&mut Piece> {
         self.positions[coord.file as usize + coord.rank as usize * 8].as_mut()
     }
 
+    /// Sets the piece at the given coordinate to the given piece.
     pub fn set(&mut self, coord: Coord, piece: Option<Piece>) {
         self.positions[coord.file as usize + coord.rank as usize * 8] = piece;
     }
 
+    /// Move a potential move to the board.
+    ///
+    /// This updates the board to reflect the move, and adds the move to the move history.
+    ///
+    /// Will return an error if the move is not logically possible, e.g. if the piece to move
+    /// is not the expected piece, or if the end position is not empty or contains the expected
+    /// piece (if the move is a capture). However, it does not check if the move is legal according
+    /// to chess rules.
     pub fn push_move(&mut self, mv: PotentialMove) -> Result<(), BoardError> {
         // Verify that the piece to move is the expected piece
         // and that the end position is empty or contains the expected piece
@@ -64,7 +83,7 @@ impl Board {
             let captured_piece = self.get(en_passant);
             if start_piece != Some(mv.piece) {
                 return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
-            } else if end_piece != None {
+            } else if end_piece.is_some() {
                 return Err(MoveError::EnPassantIntoOccupiedSquare(mv, end_piece.unwrap()).into());
             } else if captured_piece != mv.captures {
                 return Err(MoveError::UnexpectedEndPositionMove(mv, captured_piece).into());
@@ -123,6 +142,7 @@ impl Board {
         s
     }
 
+    /// Returns the last move played on the board, or `None` if no move has been played.
     pub fn last_move(&self) -> Option<PlayedMove> {
         self.move_history.last().copied()
     }
@@ -163,10 +183,16 @@ impl Display for Board {
 }
 
 impl Default for Board {
+    /// Create a new board with the standard chess starting position.
     fn default() -> Self {
         Board::from_fen_position("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR").unwrap()
     }
 }
+
+/// A move that has been played on the board.
+///
+/// A `PotentialMove` is one of the moves that is possible to play, and this is converted to
+/// a `PlayedMove` when the move is actually played on the board.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PlayedMove {
     pub piece: Piece,
@@ -234,60 +260,6 @@ mod tests {
     use test_case::test_case;
 
     #[test]
-    fn test_coord_print() {
-        let coord = Coord { file: 0, rank: 0 };
-        assert_eq!(coord.to_string(), "a1");
-
-        let coord = Coord { file: 7, rank: 7 };
-        assert_eq!(coord.to_string(), "h8");
-
-        let coord = Coord { file: 4, rank: 2 };
-        assert_eq!(coord.to_string(), "e3");
-    }
-
-    #[test]
-    fn test_coord_from_string() {
-        let coord = Coord::from_string("a1").unwrap();
-        assert_eq!(coord.file, 0);
-        assert_eq!(coord.rank, 0);
-
-        let coord = Coord::from_string("h8").unwrap();
-        assert_eq!(coord.file, 7);
-        assert_eq!(coord.rank, 7);
-
-        let coord = Coord::from_string("e3").unwrap();
-        assert_eq!(coord.file, 4);
-        assert_eq!(coord.rank, 2);
-    }
-
-    #[test]
-    fn test_coord_from_string_invalid() {
-        let coord = Coord::from_string("a");
-        assert!(matches!(
-            coord.unwrap_err(),
-            BoardError::MalformedCoordinateString(_)
-        ));
-
-        let coord = Coord::from_string("a1a");
-        assert!(matches!(
-            coord.unwrap_err(),
-            BoardError::MalformedCoordinateString(_)
-        ));
-
-        let coord = Coord::from_string("a9");
-        assert!(matches!(
-            coord.unwrap_err(),
-            BoardError::CoordinateOutOfRange(_)
-        ));
-
-        let coord = Coord::from_string("i1");
-        assert!(matches!(
-            coord.unwrap_err(),
-            BoardError::CoordinateOutOfRange(_)
-        ));
-    }
-
-    #[test]
     fn test_board_get() {
         let mut board = Board::new();
         let coord = Coord::new(0, 0);
@@ -332,35 +304,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_relative_coords() {
-        let coord = Coord::from_string("g5").unwrap();
-        assert_eq!(
-            coord.relative(1, 0),
-            Some(Coord::from_string("h5").unwrap())
-        );
-        assert_eq!(
-            coord.relative(1, 1),
-            Some(Coord::from_string("h6").unwrap())
-        );
-        assert_eq!(
-            coord.relative(0, 3),
-            Some(Coord::from_string("g8").unwrap())
-        );
-
-        assert_eq!(
-            coord.relative(-1, 0),
-            Some(Coord::from_string("f5").unwrap())
-        );
-        assert_eq!(
-            coord.relative(-1, -1),
-            Some(Coord::from_string("f4").unwrap())
-        );
-
-        assert_eq!(coord.relative(2, 0), None);
-        assert_eq!(coord.relative(0, 4), None);
-    }
-
+    /// Detect when a pawn is moved two squares forward.
     #[test_case("a2", "a4", Player::White; "a file, white")]
     #[test_case("d2", "d4", Player::White; "d file, white")]
     #[test_case("a7", "a5", Player::Black; "a file, black")]
@@ -403,11 +347,11 @@ mod tests {
         assert!(!move_.is_double_pawn_move());
     }
 
-    #[test]
     /// Test that we can allow for an en passant move and that
     /// the positions are updated correctly.
+    #[test]
     fn test_en_passant_moves() {
-        use crate::{plot_moves, valid_moves};
+        use crate::{list_valid_moves, plot_moves};
         let mut board_strings = vec![];
         let mut board = Board::default();
 
@@ -420,8 +364,8 @@ mod tests {
         board.set(coord, Some(pawn_w));
 
         // Move the black pawn on d7 to d5
-        let from_coord = Coord::from_string("d7").unwrap();
-        let to_coord = Coord::from_string("d5").unwrap();
+        let from_coord: Coord = "d7".parse().unwrap();
+        let to_coord: Coord = "d5".parse().unwrap();
         let pawn_b = Piece {
             piece_type: PieceType::Pawn,
             player: Player::Black,
@@ -432,9 +376,9 @@ mod tests {
 
         // En passant
         // White pawn on e5 should be able to capture the black pawn on d5
-        let coord = Coord::from_string("e5").unwrap();
+        let coord: Coord = "e5".parse().unwrap();
 
-        let pawn_moves = valid_moves(&board, coord, false).unwrap();
+        let pawn_moves = list_valid_moves(&board, coord, false).unwrap();
         let move_grid = plot_moves(&board, &pawn_moves, false);
         board_strings.push(move_grid);
 

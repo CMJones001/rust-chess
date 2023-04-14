@@ -1,3 +1,7 @@
+//! FEN Parser
+//!
+//! This module is used to parse a FEN string into vector of optional `Piece`s, where it can
+//! then be converted into a board.
 use super::piece::Piece;
 use super::piece::{PieceType, Player};
 use owo_colors::OwoColorize;
@@ -16,6 +20,9 @@ pub enum FENError {
 }
 
 impl FENError {
+    /// Pretty print the FEN error
+    ///
+    /// This will print the FEN string with the error highlighted in red
     pub fn pretty_print(&self, input: &str) {
         match self {
             FENError::InvalidPieceType(p, _, _, index) => {
@@ -166,7 +173,6 @@ mod tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        println!("{:?}", error);
         assert!(matches!(error, FENError::ExpectedSlash(8, 17)));
     }
 
@@ -178,7 +184,6 @@ mod tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        println!("{:?}", error);
         assert!(matches!(error, FENError::InvalidLineLength(7, 5, _)));
     }
 

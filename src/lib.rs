@@ -1,6 +1,6 @@
 mod an_parser;
 mod common;
-mod play_move;
+mod potential_moves;
 
 pub use common::{Board, BoardError, Coord, Piece, PieceType, Player};
-pub use play_move::{plot_moves, valid_moves, PotentialMove};
+pub use potential_moves::{list_valid_moves, plot_moves, PotentialMove};

@@ -1,4 +1,15 @@
 #![allow(dead_code)]
+//! Parser for algebraic notation.
+//!
+//! This module contains the parser for algebraic notation. It is used to parse
+//! strings like "e4" or "Nf3" into a `MoveType`.
+//! For strings like "1. e4 e5" or "3. e4 Nf3" it will return a `MovePair` tuple.
+//! The first element of the tuple is the move number, the second is the move
+//! itself, and the third is an optional move for the black player.
+//!
+//! For more information on algebraic notation, see
+//! [Wikipedia](https://en.wikipedia.org/wiki/Algebraic_notation_(chess)).
+//!
 mod move_types;
 
 use nom::{
@@ -12,7 +23,7 @@ use nom::{
 };
 
 use crate::common::{AnParseError, Coord, PieceType, Player};
-pub use move_types::{Castling, RecordedMove, MajorMove, MoveType, PawnCapture, PawnMove};
+pub use move_types::{Castling, MajorMove, MoveType, PawnCapture, PawnMove, RecordedMove};
 
 pub type MovePair = (u64, RecordedMove, Option<RecordedMove>);
 

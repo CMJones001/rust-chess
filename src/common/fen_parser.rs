@@ -17,6 +17,8 @@ pub enum FENError {
     ExpectedSlash(usize, usize),
     #[error("Incomplete FEN String, got to file {} on rank {}", .0, 8-.1)]
     IncompleteFEN(usize, usize),
+    #[error("Extra rank at end of FEN string")]
+    ExtraRank,
 }
 
 impl FENError {
@@ -74,6 +76,9 @@ pub fn parse_fen_lines(input: &str) -> Result<[Option<Piece>; 64], FENError> {
         } else if c == '/' {
             if file != 8 {
                 return Err(FENError::InvalidLineLength(file, rank, index));
+            }
+            if rank == 0 {
+                return Err(FENError::ExtraRank);
             }
             file = 0;
             rank -= 1;
@@ -195,5 +200,15 @@ mod tests {
 
         let error = result.unwrap_err();
         error.pretty_print(input);
+    }
+
+    #[test]
+    fn test_too_long_fen() {
+        let input = "8/8/8/8/8/8/8/pppppppp/8";
+        let result = parse_fen_lines(input);
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+        assert!(matches!(error, FENError::ExtraRank));
     }
 }

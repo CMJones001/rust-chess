@@ -91,6 +91,18 @@ impl Board {
                 self.set(mv.end, Some(mv.piece));
                 self.set(en_passant, None);
             }
+        } else if let Some(promotion) = mv.promotion {
+            let start_piece = self.get(mv.start);
+            let end_peice = self.get(mv.end);
+            let player = mv.piece.player;
+            if start_piece != Some(mv.piece) {
+                return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
+            } else if end_peice != mv.captures {
+                return Err(MoveError::UnexpectedEndPositionMove(mv, end_peice).into());
+            } else {
+                self.set(mv.start, None);
+                self.set(mv.end, Some(promotion));
+            }
         } else {
             let start_piece = self.get(mv.start);
             let end_peice = self.get(mv.end);
@@ -221,6 +233,7 @@ pub struct PlayedMove {
     pub captures: Option<Piece>,
     // The coordinate of the piece that was captured by en passant.
     pub en_passant: Option<Coord>,
+    pub promotion: Option<PieceType>,
 }
 
 impl PlayedMove {
@@ -231,6 +244,7 @@ impl PlayedMove {
         end: Coord,
         captures: Option<Piece>,
         en_passant: Option<Coord>,
+        promotion: Option<PieceType>,
     ) -> PlayedMove {
         PlayedMove {
             piece,
@@ -238,6 +252,7 @@ impl PlayedMove {
             end,
             captures,
             en_passant,
+            promotion,
         }
     }
 
@@ -272,12 +287,14 @@ impl Display for PlayedMove {
 
 impl From<PotentialMove> for PlayedMove {
     fn from(potential_move: PotentialMove) -> Self {
+        // TODO: Get the actual piece for promotion.
         PlayedMove {
             piece: potential_move.piece,
             start: potential_move.start,
             end: potential_move.end,
             captures: potential_move.captures,
             en_passant: potential_move.en_passant,
+            promotion: Some(PieceType::Queen),
         }
     }
 }
@@ -348,6 +365,7 @@ mod tests {
             Coord::from_string(to).unwrap(),
             None,
             None,
+            None,
         );
 
         assert!(move_.is_double_pawn_move());
@@ -364,6 +382,7 @@ mod tests {
             Coord::from_string(to).unwrap(),
             None,
             None,
+            None,
         );
 
         assert!(!move_.is_double_pawn_move());
@@ -375,6 +394,7 @@ mod tests {
             Piece::new(PieceType::Rook, Player::White),
             Coord::from_string("a2").unwrap(),
             Coord::from_string("a4").unwrap(),
+            None,
             None,
             None,
         );

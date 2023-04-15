@@ -28,38 +28,30 @@ impl FENError {
     pub fn pretty_print(&self, input: &str) {
         match self {
             FENError::InvalidPieceType(p, _, _, index) => {
-                input.chars().enumerate().for_each(|(i, c)| {
-                    if i == *index {
-                        eprint!("{}", c.red().bold());
-                    } else {
-                        eprint!("{c}");
-                    }
-                });
+                mark_error_at_index(input, *index);
                 eprintln!("\nInvalid piece type {} at {}", p, index)
             }
             FENError::InvalidLineLength(_, _, index) => {
-                input.chars().enumerate().for_each(|(i, c)| {
-                    if i == *index {
-                        eprint!("{}", c.red().bold());
-                    } else {
-                        eprint!("{c}");
-                    }
-                });
+                mark_error_at_index(input, *index);
                 eprintln!("\nInvalid line length at {}", index)
             }
             FENError::ExpectedSlash(_, index) => {
-                input.chars().enumerate().for_each(|(i, c)| {
-                    if i == *index {
-                        eprint!("{}", c.red().bold());
-                    } else {
-                        eprint!("{c}");
-                    }
-                });
+                mark_error_at_index(input, *index);
                 eprintln!("\nExpected '/' at {}", index)
             }
             _ => eprintln!("Error: {self}"),
         }
     }
+}
+
+fn mark_error_at_index(input: &str, index: usize) {
+    input.chars().enumerate().for_each(|(i, c)| {
+        if i == index {
+            eprint!("{}", c.red().bold());
+        } else {
+            eprint!("{c}");
+        }
+    });
 }
 
 pub fn parse_fen_lines(input: &str) -> Result<[Option<Piece>; 64], FENError> {
@@ -168,6 +160,7 @@ mod tests {
 
         let error = result.unwrap_err();
         assert!(matches!(error, FENError::InvalidPieceType('X', 4, 6, _)));
+        error.pretty_print(input);
     }
 
     #[test]
@@ -179,6 +172,7 @@ mod tests {
 
         let error = result.unwrap_err();
         assert!(matches!(error, FENError::ExpectedSlash(8, 17)));
+        error.pretty_print(input);
     }
 
     #[test]
@@ -190,6 +184,7 @@ mod tests {
 
         let error = result.unwrap_err();
         assert!(matches!(error, FENError::InvalidLineLength(7, 5, _)));
+        error.pretty_print(input);
     }
 
     #[test]
@@ -210,5 +205,6 @@ mod tests {
 
         let error = result.unwrap_err();
         assert!(matches!(error, FENError::ExtraRank));
+        error.pretty_print(input);
     }
 }

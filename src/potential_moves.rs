@@ -75,7 +75,6 @@ impl PotentialMove {
 }
 
 /// Return a list of valid moves for the piece at the given location
-/// TODO: Add support for castling
 ///
 /// # Arguments
 /// * `board` - The board to check
@@ -90,6 +89,7 @@ impl PotentialMove {
 ///
 /// Fortunately, the second pass does not need to be recursive as it does not need to remove check
 /// moves as piece can still threaten check even if it cannot move in practically, due to a pin.
+// TODO: Add support for castling
 pub fn list_valid_moves(
     board: &Board,
     coord: Coord,

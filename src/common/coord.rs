@@ -1,21 +1,21 @@
-//! Coordinate representation and conversion.
-//!
-//! Coordinates are represented as a tuple of (file, rank), where file is the
-//! column and rank is the row. The top left corner is (0, 0), and the bottom
-//! right corner is (7, 7).
-//!
-//! Coordinates are converted to and from strings using the `Display` and
-//! `FromStr` traits (or the `from_string` method). The string representation is the file letter
-//! followed by the rank number, e.g. "a1", "b2", "c3", etc.
-//!
-//! Coordinates also have a `relative` method, which returns the coordinate
-//! relative to itself, or `None` if this would be off the board.
-//!
 use std::fmt::Display;
 
 use super::errors::BoardError;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Coordinate representation and conversion.
+///
+/// Coordinates are represented as a tuple of (file, rank), where file is the
+/// column and rank is the row. The top left corner is (0, 0), and the bottom
+/// right corner is (7, 7).
+///
+/// Coordinates are converted to and from strings using the `Display` and
+/// `FromStr` traits (or the `from_string` method). The string representation is the file letter
+/// followed by the rank number, e.g. "a1", "b2", "c3", etc.
+///
+/// Coordinates also have a `relative` method, which returns the coordinate
+/// relative to itself, or `None` if this would be off the board.
+///
 pub struct Coord {
     pub file: u8,
     pub rank: u8,
@@ -66,7 +66,7 @@ impl Coord {
     }
 
     /// Convert an index in the board vector into a coordinate.
-    pub fn from_index(index: usize) -> Coord {
+    pub(crate) fn from_index(index: usize) -> Coord {
         let file = (index % 8) as u8;
         let rank = (index / 8) as u8;
         Coord::new(file, rank)

@@ -21,6 +21,13 @@ pub use piece::{Piece, PieceType, Player};
 //
 // The elements in the board array are Option<Peice>, so we can represent empty squares.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Representation of the chess board.
+///
+/// The board is represented as a 1d array of 64 elements, where each element is an `Option<Piece>`.
+/// The board is indexed by `Coord`, which is a tuple of (file, rank).
+/// The top left corner is (0, 0), and the bottom right corner is (7, 7).
+///
+/// The board also keeps track of the move history.
 pub struct Board {
     pub positions: [Option<Piece>; 64],
     pub move_history: Vec<PlayedMove>,
@@ -39,7 +46,7 @@ impl Board {
 
     /// Create a new board with the given position.
     /// The position is given as a FEN string.
-    /// See https://en.wikipedia.org/wiki/Forsyth-Edwards_Notation for details.
+    /// See [Wikipedia](https://en.wikipedia.org/wiki/Forsyth-Edwards_Notation) for details.
     pub fn from_fen_position(fen: &str) -> Result<Board, BoardError> {
         let results = parse_fen_lines(fen)?;
         Ok(Board {
@@ -64,26 +71,24 @@ impl Board {
         self.positions[coord.file as usize + coord.rank as usize * 8] = piece;
     }
 
-    /// Move a potential move to the board.
+    /// Update the board to reflect the given move, and add the move to the move history.
     ///
-    /// This updates the board to reflect the move, and adds the move to the move history.
-    ///
-    /// Will return an error if the move is not logically possible, e.g. if the piece to move
-    /// is not the expected piece, or if the end position is not empty or contains the expected
-    /// piece (if the move is a capture). However, it does not check if the move is legal according
-    /// to chess rules.
+    /// Will return an error if the move is not logically consistent e.g. if the piece to move
+    /// is not the expected piece, or if the end position is not empty or does not contain the
+    /// expected piece (if the move is a capture). However, it does not check if the move is legal
+    /// according to chess rules.
     pub fn push_move(&mut self, mv: PotentialMove) -> Result<(), BoardError> {
-        // Verify that the piece to move is the expected piece
-        // and that the end position is empty or contains the expected piece
-        // (if the move is a capture)
+        let start_piece = self.get(mv.start);
+        let end_piece = self.get(mv.end);
+
+        if start_piece != Some(mv.piece) {
+            return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
+        }
+
         if let Some(en_passant) = mv.en_passant {
-            let start_piece = self.get(mv.start);
-            let end_piece = self.get(mv.end);
             let captured_piece = self.get(en_passant);
-            if start_piece != Some(mv.piece) {
-                return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
-            } else if end_piece.is_some() {
-                return Err(MoveError::EnPassantIntoOccupiedSquare(mv, end_piece.unwrap()).into());
+            if let Some(end) = end_piece {
+                return Err(MoveError::EnPassantIntoOccupiedSquare(mv, end).into());
             } else if captured_piece != mv.captures {
                 return Err(MoveError::UnexpectedEndPositionMove(mv, captured_piece).into());
             } else {
@@ -92,17 +97,14 @@ impl Board {
                 self.set(en_passant, None);
             }
         } else {
-            let end_piece_type = if let Some(piece) = mv.promotion {
-                piece
+            let end_piece_type = if let Some(promoted_piece) = mv.promotion {
+                promoted_piece
             } else {
                 mv.piece
             };
-            let start_piece = self.get(mv.start);
-            let end_peice = self.get(mv.end);
-            if start_piece != Some(mv.piece) {
-                return Err(MoveError::UnexpectedPieceToMove(mv, start_piece).into());
-            } else if end_peice != mv.captures {
-                return Err(MoveError::UnexpectedEndPositionMove(mv, end_peice).into());
+
+            if end_piece != mv.captures {
+                return Err(MoveError::UnexpectedEndPositionMove(mv, end_piece).into());
             } else {
                 self.set(mv.start, None);
                 self.set(mv.end, Some(end_piece_type));

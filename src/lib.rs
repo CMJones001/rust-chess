@@ -1,3 +1,5 @@
+//! Main documentation for the library
+//!
 mod an_parser;
 mod common;
 mod potential_moves;
